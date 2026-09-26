@@ -158,7 +158,7 @@ export default function AIVoiceCallModal({
       setTimeout(() => escalateToCaregiver(), 2000);
     } else {
       patientText = "I have acute chest pain and shortness of breath.";
-      aiResponse = `Emergency Protocol Priority 1 activated. Bridging to Stage 3: Immediate 3-Way Conference with ${patientLocation.nearestPSAP} and David Miller.`;
+      aiResponse = `Emergency Protocol Priority 1 activated. Bridging to Stage 3: Immediate 3-Way Conference with ${patientLocation.nearestPSAP || 'local 911 services'} and David Miller.`;
       setPatientStatus('distressed');
       setTimeout(() => escalateToConference(), 2000);
     }
@@ -181,7 +181,7 @@ export default function AIVoiceCallModal({
     setTriageStage('stage2_caregiver');
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const msg = `[Stage 2 / Option C Activated] Direct Outbound Priority Bridge to David Miller (+1 555-234-8901). Senior expressed distress.`;
-    const aiSpeech = `David, KINOTE has bridged you to Eleanor. Her pulse is elevated and she reported distress. Location: ${patientLocation.address}.`;
+    const aiSpeech = `David, KINOTE has bridged you to Eleanor. Her pulse is elevated and she reported distress. Location: ${patientLocation.address || 'the address on file (none added yet)'}.`;
 
     setTranscript((prev) => [
       ...prev,
@@ -197,15 +197,15 @@ export default function AIVoiceCallModal({
     setTriageStage('stage3_conference');
     setCallStatus('dispatched');
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const dispatchMsg = `[Stage 3 / Option B Activated] 3-Way Conference Bridge Established: Senior + Caregiver + ${patientLocation.nearestPSAP} (${patientLocation.dispatchPreference.toUpperCase()}). Paramedic unit dispatched to ${patientLocation.address}.`;
+    const dispatchMsg = `[Stage 3 / Option B Activated] 3-Way Conference Bridge Established: Senior + Caregiver + ${patientLocation.nearestPSAP || 'local 911 services'} (${patientLocation.dispatchPreference.toUpperCase()}). Paramedic unit dispatched to ${patientLocation.address || 'the address on file (none added yet)'}.`;
 
     setTranscript((prev) => [
       ...prev,
       { speaker: 'system', text: dispatchMsg, time: timeNow },
-      { speaker: 'ai', text: `EMS dispatch confirmed. Paramedics en route to ${patientLocation.address}. Estimated arrival: 5 minutes. Telemetry link live.`, time: timeNow },
+      { speaker: 'ai', text: `EMS dispatch confirmed. Paramedics en route to ${patientLocation.address || 'the address on file (none added yet)'}. Estimated arrival: 5 minutes. Telemetry link live.`, time: timeNow },
     ]);
 
-    speakText(`EMS dispatch confirmed. Paramedics en route to ${patientLocation.address}. Keep your phone near you.`);
+    speakText(`EMS dispatch confirmed. Paramedics en route to ${patientLocation.address || 'the address on file (none added yet)'}. Keep your phone near you.`);
   };
 
   const handleEndCall = () => {
@@ -300,7 +300,7 @@ export default function AIVoiceCallModal({
           </div>
 
           <span className="text-[11px] text-slate-400">
-            Location: {patientLocation.label.split(' ')[0]}
+            Location: {patientLocation.address ? patientLocation.label.split(' ')[0] : 'Not set'}
           </span>
         </div>
 
@@ -475,7 +475,7 @@ export default function AIVoiceCallModal({
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:bg-red-950 disabled:text-red-400/60 text-white text-xs font-semibold shadow-md transition-colors"
             >
               <Ambulance className="w-4 h-4" />
-              <span>{callStatus === 'dispatched' ? 'EMS Dispatched' : `Bridge 3-Way EMS (${patientLocation.nearestPSAP.slice(0, 16)}...)`}</span>
+              <span>{callStatus === 'dispatched' ? 'EMS Dispatched' : `Bridge 3-Way EMS (${(patientLocation.nearestPSAP || 'Local 911').slice(0, 16)}...)`}</span>
             </button>
 
             <button
