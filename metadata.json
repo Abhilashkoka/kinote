@@ -1,0 +1,7 @@
+{
+  "name": "KINOTE - Wearable Family Health & Emergency AI Dispatch",
+  "description": "KINOTE: Primary mobile and web platform for wearable health monitoring, custom vital thresholds, AI emergency voice calling, and family health intelligence.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

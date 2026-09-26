@@ -1,0 +1,491 @@
+import { useState } from 'react';
+import { 
+  CreditCard, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Calendar, 
+  Users, 
+  ShieldCheck, 
+  Download, 
+  Sparkles, 
+  PhoneCall, 
+  ArrowUpRight,
+  Clock,
+  Activity,
+  Layers,
+  HelpCircle,
+  FileText
+} from 'lucide-react';
+import { MembershipDetails, MembershipPlanType } from '../types';
+
+interface MembershipBillingProps {
+  membership: MembershipDetails;
+  onUpdatePlan: (newPlan: MembershipPlanType) => void;
+  onSimulateGracePeriod: () => void;
+  onResetStatus: () => void;
+  patientCount: number;
+}
+
+export default function MembershipBilling({
+  membership,
+  onUpdatePlan,
+  onSimulateGracePeriod,
+  onResetStatus,
+  patientCount,
+}: MembershipBillingProps) {
+  const [selectedPlanModal, setSelectedPlanModal] = useState<MembershipPlanType | null>(null);
+  const [showCardUpdateModal, setShowCardUpdateModal] = useState(false);
+  const [cardLast4, setCardLast4] = useState(membership.paymentMethod.last4);
+  const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
+
+  const handleDownloadInvoice = (invId: string) => {
+    setDownloadSuccess(invId);
+    setTimeout(() => setDownloadSuccess(null), 3000);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Top Banner / Billing Status */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-7 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-bl from-teal-500/10 via-emerald-500/5 to-transparent pointer-events-none rounded-bl-full" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="px-3 py-1 rounded-full bg-teal-100 text-teal-800 text-xs font-bold border border-teal-200">
+                {membership.planName}
+              </span>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold flex items-center gap-1 ${
+                membership.status === 'active'
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                  : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+              }`}>
+                {membership.status === 'active' ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Active Subscription</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Grace Period (Payment Pending)</span>
+                  </>
+                )}
+              </span>
+              <span className="text-xs text-slate-500 font-mono">
+                Billed {membership.billingCycle === 'monthly' ? 'Monthly' : 'Annually'}
+              </span>
+            </div>
+
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+              {membership.priceFormatted}
+            </h2>
+            <p className="text-xs text-slate-600 max-w-xl">
+              Next scheduled renewal is on <strong className="text-slate-900">{membership.renewalDate}</strong> ({membership.daysRemaining} days remaining). Automatic backup billing to Visa •••• {cardLast4}.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
+            {membership.status === 'grace_period' ? (
+              <button
+                onClick={onResetStatus}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Clear Grace Period &amp; Settle</span>
+              </button>
+            ) : (
+              <button
+                onClick={onSimulateGracePeriod}
+                className="px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                title="Test how the platform handles payment failure without risking senior emergency dispatch"
+              >
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span>Simulate Grace Period Warning</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setShowCardUpdateModal(true)}
+              className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <CreditCard className="w-4 h-4 text-teal-300" />
+              <span>Payment Details</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Grace Period Medical Safeguard Callout */}
+        {membership.status === 'grace_period' && (
+          <div className="mt-5 p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-3 animate-in fade-in">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="font-bold text-amber-950">Patient Safety Safeguard Active:</span>
+              <p className="leading-relaxed">
+                Even though automatic billing payment failed on your card, KINOTE medical continuity protocols keep 
+                <strong> AI Emergency Voice Dispatch</strong> and <strong>Vitals Telemetry Quorum</strong> 100% operational 
+                for a 7-day grace window. Please update your card on file to avoid monitoring disruption.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Capacity Meter: Monitored Seniors per Plan */}
+        <div className="mt-6 pt-5 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="font-medium flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-teal-600" />
+                Monitored Seniors Limit
+              </span>
+              <span className="font-mono font-bold text-slate-900">
+                {patientCount} of {membership.maxSeniors} Used
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-teal-600 rounded-full transition-all" 
+                style={{ width: `${(patientCount / membership.maxSeniors) * 100}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 pt-0.5">
+              Eleanor Miller (Mother) &amp; Robert Miller (Father)
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="font-medium flex items-center gap-1.5">
+                <PhoneCall className="w-3.5 h-3.5 text-rose-600" />
+                AI Emergency Voice Calling
+              </span>
+              <span className="font-mono font-bold text-slate-900">
+                {membership.features.aiVoiceMinutesUsed} / {membership.features.aiVoiceMinutesTotal} min
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-rose-500 rounded-full transition-all" 
+                style={{ width: `${(membership.features.aiVoiceMinutesUsed / membership.features.aiVoiceMinutesTotal) * 100}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 pt-0.5">
+              82 minutes remaining this cycle. Auto-renews next month.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="font-medium flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                Regulatory &amp; Telemetry
+              </span>
+              <span className="font-semibold text-emerald-700">Enterprise HIPAA</span>
+            </div>
+            <p className="text-[11px] text-slate-600 pt-1 leading-snug">
+              256-bit AES encryption, SHA-256 audit hashing, BAA compliant data isolation.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Plan Tiers & Comparison Grid */}
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Membership Tiers &amp; Capacity Mapping</h3>
+          <p className="text-xs text-slate-500">
+            Each plan defines how many senior profiles can be actively monitored, wearable streaming limits, and automated AI dispatch channels.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Plan 1: Family Basic */}
+          <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
+            membership.planType === 'family_basic'
+              ? 'bg-teal-50/50 border-teal-500 ring-2 ring-teal-500/20 shadow-md'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-slate-900">Family Basic</h4>
+                {membership.planType === 'family_basic' && (
+                  <span className="px-2 py-0.5 rounded bg-teal-100 text-teal-800 font-bold text-[10px]">
+                    Current Plan
+                  </span>
+                )}
+              </div>
+              <div>
+                <span className="text-2xl font-black text-slate-900">$15</span>
+                <span className="text-xs text-slate-500"> / month</span>
+              </div>
+              <p className="text-xs text-slate-600">Essential vital telemetry tracking for a single elderly family member.</p>
+
+              <ul className="space-y-2 text-xs text-slate-600 pt-2 border-t border-slate-100">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span><strong>1 Monitored Senior</strong> Profile</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span>Standard Wearable Vitals Sync</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span>Caregiver Push &amp; SMS Alerts</span>
+                </li>
+                <li className="flex items-center gap-2 text-slate-400">
+                  <span className="w-3.5 h-3.5 text-center leading-none text-slate-300">✕</span>
+                  <span>AI Voice Check-in Calls</span>
+                </li>
+              </ul>
+            </div>
+
+            <button
+              onClick={() => onUpdatePlan('family_basic')}
+              disabled={membership.planType === 'family_basic'}
+              className="mt-5 w-full py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 disabled:bg-slate-100 text-slate-800 disabled:text-slate-400 font-bold text-xs transition-colors cursor-pointer"
+            >
+              {membership.planType === 'family_basic' ? 'Current Plan' : 'Downgrade to Basic'}
+            </button>
+          </div>
+
+          {/* Plan 2: Caregiver Plus (CURRENT) */}
+          <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between relative ${
+            membership.planType === 'caregiver_plus'
+              ? 'bg-teal-50/50 border-teal-600 ring-2 ring-teal-500/20 shadow-md'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}>
+            <div className="absolute -top-3 right-4 bg-teal-700 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-sm">
+              Most Popular Family Choice
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-slate-900">Caregiver Plus</h4>
+                {membership.planType === 'caregiver_plus' && (
+                  <span className="px-2 py-0.5 rounded bg-teal-200 text-teal-900 font-bold text-[10px]">
+                    Current Plan
+                  </span>
+                )}
+              </div>
+              <div>
+                <span className="text-2xl font-black text-slate-900">$29</span>
+                <span className="text-xs text-slate-500"> / month</span>
+              </div>
+              <p className="text-xs text-slate-600">Full AI emergency triage voice dispatch for multiple aging parents.</p>
+
+              <ul className="space-y-2 text-xs text-slate-600 pt-2 border-t border-slate-100">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span><strong>Up to 3 Monitored Seniors</strong> (Mom &amp; Dad)</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span><strong>AI Voice Check-in Calls</strong> (120 min/mo)</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span><strong>30-Day Recharts Adherence Trends</strong></span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span>Up to 5 Caregiver Accounts</span>
+                </li>
+              </ul>
+            </div>
+
+            <button
+              onClick={() => onUpdatePlan('caregiver_plus')}
+              disabled={membership.planType === 'caregiver_plus'}
+              className="mt-5 w-full py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:bg-teal-900/10 text-white disabled:text-teal-900 font-bold text-xs transition-colors cursor-pointer shadow-xs"
+            >
+              {membership.planType === 'caregiver_plus' ? 'Active Plan' : 'Select Plus'}
+            </button>
+          </div>
+
+          {/* Plan 3: Clinical Concierge */}
+          <div className={`p-5 rounded-2xl border transition-all flex flex-col justify-between ${
+            membership.planType === 'clinical_concierge'
+              ? 'bg-teal-50/50 border-teal-500 ring-2 ring-teal-500/20 shadow-md'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-slate-900">Clinical Concierge</h4>
+                {membership.planType === 'clinical_concierge' && (
+                  <span className="px-2 py-0.5 rounded bg-teal-100 text-teal-800 font-bold text-[10px]">
+                    Current Plan
+                  </span>
+                )}
+              </div>
+              <div>
+                <span className="text-2xl font-black text-slate-900">$59</span>
+                <span className="text-xs text-slate-500"> / month</span>
+              </div>
+              <p className="text-xs text-slate-600">Enterprise E911 direct bridge &amp; dedicated cellular fallback.</p>
+
+              <ul className="space-y-2 text-xs text-slate-600 pt-2 border-t border-slate-100">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span><strong>Unlimited Monitored Seniors</strong></span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span><strong>24/7 E911 PSAP Telemetry Bridge</strong></span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span>Cellular eSIM Failover Telemetry</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span>Unlimited AI Voice Minutes</span>
+                </li>
+              </ul>
+            </div>
+
+            <button
+              onClick={() => onUpdatePlan('clinical_concierge')}
+              disabled={membership.planType === 'clinical_concierge'}
+              className="mt-5 w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-100 text-white disabled:text-slate-400 font-bold text-xs transition-colors cursor-pointer"
+            >
+              {membership.planType === 'clinical_concierge' ? 'Active Plan' : 'Upgrade to Concierge'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Method & Invoices Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Payment Method Card */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-bold text-slate-900">Payment Method on File</h4>
+            <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-semibold">
+              Default
+            </span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 text-white space-y-3 shadow-md">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">KINOTE Medical Pay</span>
+              <span className="text-sm font-mono font-bold">VISA</span>
+            </div>
+            <div className="text-sm font-mono tracking-widest pt-2">
+              •••• •••• •••• {cardLast4}
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>Cardholder: David Miller</span>
+              <span>Expires: {membership.paymentMethod.expMonth}/{membership.paymentMethod.expYear}</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowCardUpdateModal(true)}
+            className="w-full py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+          >
+            Update Card or Billing Address
+          </button>
+        </div>
+
+        {/* Invoice & Receipts History */}
+        <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-bold text-slate-900">Billing History &amp; HIPAA Invoices</h4>
+            <span className="text-xs text-slate-400">{membership.invoices.length} transactions</span>
+          </div>
+
+          <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden text-xs">
+            {membership.invoices.map((inv) => (
+              <div key={inv.id} className="p-3.5 flex items-center justify-between bg-white hover:bg-slate-50/70 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-900 block">{inv.id.toUpperCase()}</span>
+                    <span className="text-[11px] text-slate-500">{inv.date} • Subscription Renewal</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <span className="font-mono font-bold text-slate-900">{inv.amount}</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                    Paid
+                  </span>
+                  <button
+                    onClick={() => handleDownloadInvoice(inv.id)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Download PDF Receipt"
+                  >
+                    {downloadSuccess === inv.id ? (
+                      <span className="text-[10px] text-emerald-700 font-bold">Downloaded</span>
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Simple Update Card Modal */}
+      {showCardUpdateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in">
+            <h3 className="text-sm font-bold text-slate-900">Update Payment Card</h3>
+            <p className="text-xs text-slate-500">Enter new credit or debit card details for family subscription renewals.</p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-700">Card Number</label>
+              <input
+                type="text"
+                placeholder="4242 •••• •••• ••••"
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Expiry</label>
+                <input
+                  type="text"
+                  placeholder="MM/YY"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">CVC</label>
+                <input
+                  type="text"
+                  placeholder="CVC"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setCardLast4('8812');
+                  setShowCardUpdateModal(false);
+                }}
+                className="flex-1 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs transition-colors cursor-pointer"
+              >
+                Save New Card
+              </button>
+              <button
+                onClick={() => setShowCardUpdateModal(false)}
+                className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

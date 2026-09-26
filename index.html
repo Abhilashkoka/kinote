@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KINOTE - Wearable Family Health &amp; Emergency AI Dispatch</title>
+    <meta name="description" content="KINOTE: Primary mobile and web platform for wearable health monitoring, custom vital thresholds, AI emergency voice calling, and family health intelligence." />
+    <meta property="og:title" content="KINOTE - Wearable Family Health &amp; Emergency AI Dispatch" />
+    <meta property="og:description" content="KINOTE: Primary mobile and web platform for wearable health monitoring, custom vital thresholds, AI emergency voice calling, and family health intelligence." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="KINOTE" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then((reg) => {
+            console.log('[KINOTE PWA] Service Worker registered with scope:', reg.scope);
+          }).catch((err) => {
+            console.warn('[KINOTE PWA] Service Worker registration failed:', err);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
+
