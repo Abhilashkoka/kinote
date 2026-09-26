@@ -85,7 +85,7 @@ import { DevicePairingModal } from './components/DevicePairingModal';
 import { CleanLiveTestingModal } from './components/CleanLiveTestingModal';
 import { playEmergencyChime, speakText } from './utils/speech';
 import { EMPTY_LOCATION, sanitizeCustomPatient, PatientWithLocations } from './utils/location';
-import { createNewAccountMembership, createNewAccountAuditLogs, membershipStorageKey } from './utils/newAccount';
+import { createNewAccountMembership, createNewAccountAuditLogs, membershipStorageKey, readLovedOneName } from './utils/newAccount';
 
 // Check if a user is a pre-canned demo account
 export const isDemoUser = (user: AuthUser | null): boolean => {
@@ -101,9 +101,10 @@ export const isDemoUser = (user: AuthUser | null): boolean => {
 
 // Generate an isolated, clean patient profile for a newly signed-up user
 export const createDefaultCustomPatient = (user: AuthUser): PatientWithLocations => {
+  const lovedOneName = readLovedOneName(user.id);
   const customSeniorName = user.role === 'senior_patient' 
     ? user.name 
-    : `${user.name.split(' ')[0]}'s Family Member`;
+    : lovedOneName || `${user.name.split(' ')[0]}'s Family Member`;
 
   return {
     id: `patient_${user.id}`,
@@ -659,6 +660,18 @@ export default function App() {
     showToast('Simulated Billing Alert: 7-day medical grace period active. Telemetry remains live.');
   };
 
+  // Save card details for billing: only brand, last 4 digits and expiry are kept (never the full number or CVC)
+  const handleUpdateCard = (card: MembershipDetails['paymentMethod']) => {
+    setMembership((prev) => {
+      const updated: MembershipDetails = { ...prev, paymentMethod: card };
+      try {
+        localStorage.setItem(membershipStorageKey(currentUser, isDemoUser(currentUser)), JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    showToast(`Card ending ${card.last4} saved.`);
+  };
+
   const handleResetMembershipStatus = () => {
     setMembership((prev) => {
       const updated: MembershipDetails = { ...prev, status: 'active' };
@@ -1147,6 +1160,7 @@ export default function App() {
             onUpdatePlan={handleUpdatePlan}
             onSimulateGracePeriod={handleSimulateGracePeriod}
             onResetStatus={handleResetMembershipStatus}
+            onUpdateCard={handleUpdateCard}
             patientCount={patients.length}
             patientNames={patients.map((p) => p.name)}
             cardholderName={currentUser?.name || ''}
