@@ -28,7 +28,8 @@ import {
   Activity,
   ChevronDown,
   Trash2,
-  UserPlus
+  UserPlus,
+  Radio
 } from 'lucide-react';
 import { 
   AuditLogEntry, 
@@ -81,6 +82,7 @@ import { AccountDeletionModal } from './components/AccountDeletionModal';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { MobileTesterModal } from './components/MobileTesterModal';
 import { DevicePairingModal } from './components/DevicePairingModal';
+import { CleanLiveTestingModal } from './components/CleanLiveTestingModal';
 import { playEmergencyChime, speakText } from './utils/speech';
 
 // Check if a user is a pre-canned demo account
@@ -231,6 +233,7 @@ export default function App() {
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [isAccountDeletionModalOpen, setIsAccountDeletionModalOpen] = useState(false);
+  const [isCleanLiveModalOpen, setIsCleanLiveModalOpen] = useState(false);
   const [isMobileTesterOpen, setIsMobileTesterOpen] = useState(false);
 
   // Medication Management & Adherence State (shared with Caregiver & AI Assistant)
@@ -406,6 +409,104 @@ export default function App() {
     setAuditLogs((prev) => [auditEntry, ...prev]);
 
     showToast(`All devices unpaired for ${activePatient.name}. Live telemetry set to standby.`);
+  };
+
+  // Purge all demo/sample data from database & storage, reset to 100% clean live testing mode
+  const handlePurgeAllDemoDataAndStartLive = () => {
+    // 1. Wipe mock data caches from localStorage
+    try {
+      localStorage.removeItem('kinote_patients_list');
+      localStorage.removeItem('kinote_demo_loaded');
+      localStorage.removeItem('kinote_call_logs');
+      localStorage.removeItem('kinote_medications');
+      localStorage.removeItem('kinote_dose_logs');
+    } catch {}
+
+    // 2. Prepare blank live-standby vitals (zero fake numbers)
+    const blankVitals: VitalsReading = {
+      timestamp: 'Awaiting device sync',
+      heartRate: 0,
+      bloodPressureSystolic: 0,
+      bloodPressureDiastolic: 0,
+      spo2: 0,
+      respiratoryRate: 0,
+      temperature: 0,
+      glucose: 0,
+      fallDetected: false,
+    };
+
+    // 3. Create or convert active patient into a clean live testing profile
+    const livePatientName = currentUser ? currentUser.name : activePatient.name;
+    const cleanPatient: PatientProfile = {
+      id: currentUser ? `patient_${currentUser.id}` : `patient_live_${Date.now()}`,
+      name: livePatientName,
+      relationship: currentUser?.role === 'senior_patient' ? 'Self' : 'Monitored Senior',
+      age: 74,
+      gender: 'Family Member',
+      roomOrUnit: 'Primary Residence',
+      primaryCondition: 'Live Continuous Biometric Stream',
+      avatarBg: 'from-teal-700 to-slate-900',
+      location: PATIENT_LOCATIONS[0],
+      devices: [], // Zero devices initially
+      vitals: blankVitals,
+      thresholds: INITIAL_THRESHOLDS,
+      medications: [],
+      doseLogs: [],
+      emergencyContacts: [
+        {
+          id: `contact_${Date.now()}`,
+          name: currentUser?.name || 'Primary Caregiver',
+          relation: 'Emergency Family Contact',
+          phone: currentUser?.phone || '+1 (555) 012-3456',
+          email: currentUser?.email || 'caregiver@example.com',
+          priorityOrder: 1,
+          notifyOnWarning: true,
+          notifyOnCritical: true,
+          receiveAIVoiceCall: true,
+        }
+      ]
+    };
+
+    // Save clean patient profile to localStorage
+    try {
+      if (currentUser) {
+        localStorage.setItem('kinote_patient_' + currentUser.id, JSON.stringify(cleanPatient));
+      }
+      localStorage.setItem('kinote_patients_list', JSON.stringify([cleanPatient]));
+    } catch {}
+
+    // 4. Update React state immediately
+    setPatients([cleanPatient]);
+    setActivePatientId(cleanPatient.id);
+    setVitals(blankVitals);
+    setDevices([]);
+    setEmergencyContacts(cleanPatient.emergencyContacts);
+    setMedications([]);
+    setDoseLogs([]);
+    setCallLogs([]);
+    setThresholds(INITIAL_THRESHOLDS);
+
+    // 5. Audit log this database purge
+    const auditEntry: AuditLogEntry = {
+      id: `aud_${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
+      actor: currentUser?.email || 'admin_user',
+      actorRole: currentUser?.role || 'system_admin',
+      action: 'DATABASE_DEMO_DATA_PURGED',
+      resource: 'database.all_patient_fixtures',
+      details: 'All sample demo data, pre-canned patient profiles, and mock telemetry permanently cleared. Workspace reset to 100% clean live testing mode.',
+      severity: 'INFO',
+      ipAddress: '10.0.8.21',
+      sha256Hash: Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+    };
+    setAuditLogs((prev) => [auditEntry, ...prev]);
+
+    showToast('✨ All demo data deleted! Database reset to 100% clean live testing.');
+    
+    // Automatically launch device pairing wizard for live watch setup
+    setTimeout(() => {
+      setIsDevicePairModalOpen(true);
+    }, 600);
   };
 
   // Sample Demo Profile Loader (to allow test driving full historical features without losing custom data)
@@ -930,6 +1031,7 @@ export default function App() {
             onUpdateMedicationReminders={handleUpdateMedicationReminders}
             onOpenPairModal={() => setIsDevicePairModalOpen(true)}
             onLoadDemoData={handleLoadDemoData}
+            onPurgeDemoData={() => setIsCleanLiveModalOpen(true)}
             isCustomUser={!isDemoUser(currentUser)}
             onRemoveDevice={handleRemoveDevice}
             onRemoveAllDevices={handleRemoveAllDevices}
@@ -1317,6 +1419,18 @@ export default function App() {
                     {/* In-App PWA Install */}
                     <PWAInstallPrompt className="w-full justify-center" />
 
+                    {/* Delete Demo Data & Reset to 100% Live Testing */}
+                    <button
+                      onClick={() => {
+                        setIsUserDropdownOpen(false);
+                        setIsCleanLiveModalOpen(true);
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 text-xs font-bold transition-colors flex items-center gap-2 cursor-pointer border border-teal-300"
+                    >
+                      <Radio className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                      <span>Delete Demo Data (Live Only)</span>
+                    </button>
+
                     {/* Privacy Policy & Play Store Data Safety */}
                     <button
                       onClick={() => {
@@ -1597,16 +1711,26 @@ export default function App() {
           </div>
 
           {/* Privacy & Erasure shortcuts in mobile menu */}
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs gap-2">
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                setIsCleanLiveModalOpen(true);
+              }}
+              className="text-teal-700 hover:text-teal-800 font-bold underline underline-offset-2 cursor-pointer flex items-center gap-1"
+            >
+              <Radio className="w-3.5 h-3.5 text-teal-600" />
+              <span>Live Mode Only</span>
+            </button>
             <button
               onClick={() => {
                 setIsMobileMenuOpen(false);
                 setIsPrivacyModalOpen(true);
               }}
-              className="text-teal-700 hover:text-teal-800 font-semibold underline underline-offset-2 cursor-pointer flex items-center gap-1"
+              className="text-slate-600 hover:text-slate-800 font-semibold underline underline-offset-2 cursor-pointer flex items-center gap-1"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Privacy Policy</span>
+              <span>Privacy</span>
             </button>
             <button
               onClick={() => {
@@ -1723,6 +1847,14 @@ export default function App() {
           onConfirmPurge={handleConfirmAccountPurge}
         />
       )}
+
+      {/* Clean Live Testing & Demo Purge Modal */}
+      <CleanLiveTestingModal
+        isOpen={isCleanLiveModalOpen}
+        onClose={() => setIsCleanLiveModalOpen(false)}
+        onPurgeAndStartLive={handlePurgeAllDemoDataAndStartLive}
+        activePatientName={patientName}
+      />
 
       {/* Mobile Phone QR & Direct URL Tester Modal */}
       <MobileTesterModal

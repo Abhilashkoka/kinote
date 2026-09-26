@@ -212,13 +212,15 @@ export interface WearableDevice {
   name: string;
   brand: string;
   category: WearableCategory;
-  batteryPercent: number;
+  batteryPercent?: number; // Optional: only shown if verified from battery_service GATT or reported by companion app
+  batteryVerified?: boolean;
   lastSync: string;
   connected: boolean;
   macAddress: string;
   supportedMetrics: string[];
   metricsSpecs?: WearableDeviceMetricSpec[];
   telemetrySummary?: string;
+  screenSyncMessage?: string; // Watch screen display banner or confirmation
 }
 
 export interface EmergencyContact {

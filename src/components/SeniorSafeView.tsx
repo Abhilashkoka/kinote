@@ -249,8 +249,16 @@ export default function SeniorSafeView({
                         </div>
 
                         <div className="flex items-center gap-1 text-[11px] font-mono text-slate-600 shrink-0">
-                          <Battery className={`w-3.5 h-3.5 ${device.batteryPercent > 20 ? 'text-emerald-600' : 'text-rose-500'}`} />
-                          <span>{device.batteryPercent}%</span>
+                          {device.batteryPercent !== undefined ? (
+                            <>
+                              <Battery className={`w-3.5 h-3.5 ${device.batteryPercent > 20 ? 'text-emerald-600' : 'text-rose-500'}`} />
+                              <span>{device.batteryPercent}%</span>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded font-sans font-semibold">
+                              Sync OK
+                            </span>
+                          )}
                         </div>
                       </div>
 

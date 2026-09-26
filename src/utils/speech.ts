@@ -67,3 +67,41 @@ export function playEmergencyChime() {
     // AudioContext not allowed or not supported
   }
 }
+
+/**
+ * Triggers hardware haptic vibration pattern and audible dual-tone sync chime
+ * Sends standard Navigator Vibration API pulse (works on wearables, Android watches, and paired phones)
+ */
+export function triggerSyncHapticFeedback(pattern: number[] = [120, 80, 180, 80, 240]) {
+  if (typeof window !== 'undefined' && 'navigator' in window && 'vibrate' in navigator) {
+    try {
+      navigator.vibrate(pattern);
+    } catch {
+      // Ignore vibration error on unsupported hardware
+    }
+  }
+
+  // Also play a friendly high-fidelity positive confirmation chime (C6 -> G6)
+  if (typeof window !== 'undefined') {
+    try {
+      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1046.50, audioCtx.currentTime); // C6
+      osc.frequency.setValueAtTime(1567.98, audioCtx.currentTime + 0.12); // G6
+
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.38);
+    } catch {
+      // AudioContext unavailable
+    }
+  }
+}

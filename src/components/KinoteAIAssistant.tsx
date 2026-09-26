@@ -133,12 +133,12 @@ export default function KinoteAIAssistant({
     // 2. Devices & Battery Status
     if (promptLower.includes('device') || promptLower.includes('battery') || promptLower.includes('wearable') || promptLower.includes('watch') || promptLower.includes('ring')) {
       const connectedCount = devices.filter((d) => d.connected).length;
-      const lowBatt = devices.filter((d) => d.batteryPercent < 25);
+      const lowBatt = devices.filter((d) => d.batteryPercent !== undefined && d.batteryPercent < 25);
       return {
         category: 'device_status',
         content: `### 🔋 Wearable Ecosystem Diagnostics\n\n` +
           `Currently, **${connectedCount} of ${devices.length}** health monitors are synchronized and actively broadcasting telemetry:\n\n` +
-          devices.map((d) => `• **${d.name}** (${d.brand}): Battery **${d.batteryPercent}%** · ${d.connected ? '🟢 Connected' : '⚪ Standby'} · Last sync: ${d.lastSync}`).join('\n') +
+          devices.map((d) => `• **${d.name}** (${d.brand}): ${d.batteryPercent !== undefined ? `Battery **${d.batteryPercent}%**` : 'Encrypted Stream'} · ${d.connected ? '🟢 Connected' : '⚪ Standby'} · Last sync: ${d.lastSync}`).join('\n') +
           `\n\n${lowBatt.length > 0 ? `⚠️ **Notice:** ${lowBatt.map((d) => d.name).join(', ')} is below 25% battery. Please remind Eleanor to place it on its magnetic dock.` : '✅ All device batteries have sufficient charge for overnight monitoring.'}`,
         insights: [
           `Universal Ingestion Gateway (HealthKit + Health Connect + BLE) running nominal`,

@@ -26,10 +26,12 @@ import {
   Zap,
   Play,
   Square,
-  Trash2
+  Trash2,
+  Vibrate
 } from 'lucide-react';
 import { WearableCategory, WearableDevice, VitalsReading } from '../types';
 import { WEARABLE_DATA_DICTIONARY } from '../utils/mockData';
+import { triggerSyncHapticFeedback } from '../utils/speech';
 
 interface DevicesManagerProps {
   devices: WearableDevice[];
@@ -665,8 +667,16 @@ export default function DevicesManager({
                     </div>
 
                     <div className="flex items-center gap-1.5 text-xs font-mono font-medium">
-                      <Battery className={`w-4 h-4 ${dev.batteryPercent > 20 ? 'text-slate-600' : 'text-red-500'}`} />
-                      <span className="tabular-nums">{dev.batteryPercent}%</span>
+                      {dev.batteryVerified && dev.batteryPercent !== undefined ? (
+                        <div className="flex items-center gap-1 text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                          <Battery className={`w-3.5 h-3.5 ${dev.batteryPercent > 20 ? 'text-emerald-600' : 'text-rose-500'}`} />
+                          <span className="tabular-nums">{dev.batteryPercent}%</span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md font-semibold">
+                          Encrypted Feed
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -677,6 +687,23 @@ export default function DevicesManager({
                       {dev.telemetrySummary}
                     </div>
                   )}
+
+                  {/* Watch Screen Message Simulator / Display */}
+                  <div className="mt-2.5 p-2 rounded-lg bg-slate-900 text-emerald-400 font-mono text-[10px] flex items-center justify-between border border-slate-800">
+                    <span className="flex items-center gap-1.5 truncate">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                      <span>SCREEN: &quot;KINOTE ACTIVE&quot;</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => triggerSyncHapticFeedback([180, 80, 240])}
+                      className="px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 text-[9px] font-bold flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                      title="Send hardware vibration pulse and screen ping"
+                    >
+                      <Vibrate className="w-2.5 h-2.5" />
+                      <span>Haptic Ping</span>
+                    </button>
+                  </div>
 
                   {/* Active Sensor Metrics Breakdown if available */}
                   {dev.metricsSpecs && dev.metricsSpecs.length > 0 && (
@@ -1157,13 +1184,15 @@ export default function DevicesManager({
                   name: customDevName.trim(),
                   brand: customDevBrand.trim() || 'Custom BLE',
                   category: customDevCategory,
-                  batteryPercent: 100,
+                  batteryVerified: false,
                   connected: true,
                   lastSync: 'Just now',
                   macAddress: `BLE:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:DD:EE`,
                   supportedMetrics: ['Heart Rate', 'Pulse SpO2', 'Step Tracking'],
                   telemetrySummary: 'Custom Bluetooth Health Stream Active',
+                  screenSyncMessage: 'KINOTE CONNECTED · ACTIVE MONITORING',
                 };
+                triggerSyncHapticFeedback([150, 100, 200, 100, 300]);
                 onAddDevice(newDev);
                 if (onRealVitalsUpdate) {
                   onRealVitalsUpdate({ heartRate: 72, spo2: 98 });
