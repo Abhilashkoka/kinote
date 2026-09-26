@@ -74,6 +74,35 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     }
   }, []);
 
+  // Password credentials (stored separately from the user profile, as salted SHA-256 hashes).
+  // NOTE: this is client-side only. Real accounts need server-side auth before launch.
+  const CREDENTIALS_KEY = 'kinote_credentials';
+  const DEMO_PASSWORD = 'demo1234';
+
+  const hashPassword = async (email: string, password: string): Promise<string> => {
+    const data = new TextEncoder().encode(`kinote:${email.toLowerCase()}:${password}`);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const loadCredentials = (): Record<string, string> => {
+    try {
+      return JSON.parse(localStorage.getItem(CREDENTIALS_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  };
+
+  const saveCredential = async (email: string, password: string) => {
+    try {
+      const creds = loadCredentials();
+      creds[email.toLowerCase()] = await hashPassword(email, password);
+      localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(creds));
+    } catch {
+      // ignore
+    }
+  };
+
   // Helper to persist a new user
   const saveRegisteredUser = (user: AuthUser) => {
     try {
@@ -88,62 +117,57 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   };
 
   // Sign In with Email
-  const handleEmailSignIn = (e: React.FormEvent) => {
+  const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!signInEmail.trim()) {
+    const cleanEmail = signInEmail.trim().toLowerCase();
+    if (!cleanEmail) {
       setErrorMessage('Please enter your email address.');
+      return;
+    }
+    if (!signInPassword) {
+      setErrorMessage('Please enter your password.');
       return;
     }
 
     setIsVerifying(true);
     setErrorMessage(null);
 
+    const foundCustom = savedCustomUsers.find(u => u.email.toLowerCase() === cleanEmail);
+    const foundDemo = DEMO_USERS.find(u => u.email.toLowerCase() === cleanEmail);
+    const creds = loadCredentials();
+    const enteredHash = await hashPassword(cleanEmail, signInPassword);
+
+    let passwordOk = false;
+    if (foundCustom) {
+      if (creds[cleanEmail]) {
+        passwordOk = creds[cleanEmail] === enteredHash;
+      } else {
+        // Account created before passwords were stored: set this password on first sign-in.
+        await saveCredential(cleanEmail, signInPassword);
+        passwordOk = true;
+      }
+    } else if (foundDemo) {
+      passwordOk = signInPassword === DEMO_PASSWORD;
+    }
+
     setTimeout(() => {
       setIsVerifying(false);
-      const cleanEmail = signInEmail.trim().toLowerCase();
 
-      // 1. Look in custom registered users first
-      const foundCustom = savedCustomUsers.find(u => u.email.toLowerCase() === cleanEmail);
-      if (foundCustom) {
-        onLoginSuccess({
-          ...foundCustom,
-          lastLogin: 'Just now',
-          authMethod: 'email',
-        });
+      if (!foundCustom && !foundDemo) {
+        setErrorMessage('No account found for this email. Tap "Create New Account" to sign up.');
+        return;
+      }
+      if (!passwordOk) {
+        setErrorMessage('Incorrect password. Please try again.');
         return;
       }
 
-      // 2. Look in demo users
-      const foundDemo = DEMO_USERS.find(u => u.email.toLowerCase() === cleanEmail);
-      if (foundDemo) {
-        onLoginSuccess({
-          ...foundDemo,
-          lastLogin: 'Just now',
-          authMethod: 'email',
-        });
-        return;
-      }
-
-      // 3. Brand new user entered directly into Sign In
-      // Generate a new user for them immediately rather than falling back to an old account!
-      const displayName = cleanEmail.split('@')[0]
-        .split(/[._-]/)
-        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ') || 'New User';
-
-      const freshUser: AuthUser = {
-        id: `user_${Date.now()}`,
-        name: displayName,
-        email: cleanEmail,
-        phone: '+1 (555) ' + Math.floor(100 + Math.random() * 900) + '-' + Math.floor(1000 + Math.random() * 9000),
-        role: 'family_caregiver',
+      onLoginSuccess({
+        ...(foundCustom || foundDemo)!,
+        lastLogin: 'Just now',
         authMethod: 'email',
-        lastLogin: 'Just now (New User)',
-      };
-
-      saveRegisteredUser(freshUser);
-      onLoginSuccess(freshUser);
-    }, 700);
+      });
+    }, 500);
   };
 
   // Register New User (Sign Up)
@@ -155,6 +179,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     }
     if (!newEmail.trim() || !newEmail.includes('@')) {
       setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setErrorMessage('Please choose a password with at least 6 characters.');
+      return;
+    }
+    if (DEMO_USERS.some(u => u.email.toLowerCase() === newEmail.trim().toLowerCase())) {
+      setErrorMessage('This email belongs to a demo profile. Please use your own email.');
       return;
     }
 
@@ -176,6 +208,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       // Save user to registry
       saveRegisteredUser(freshUser);
+      void saveCredential(freshUser.email, newPassword);
 
       // If they provided a loved one's name, save a customized patient profile in localStorage
       if (patientMonitoredName.trim()) {
@@ -828,7 +861,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <div className="p-4 bg-slate-950 border-t border-slate-800/60">
           <details className="group">
             <summary className="text-[11px] font-semibold text-slate-500 hover:text-slate-400 cursor-pointer flex items-center justify-between select-none">
-              <span>Looking for default test profiles?</span>
+              <span>Looking for default test profiles? (email sign-in password: demo1234)</span>
               <span className="text-teal-400 group-open:rotate-180 transition-transform">▾</span>
             </summary>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-2 border-t border-slate-900">
