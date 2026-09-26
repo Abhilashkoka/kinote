@@ -24,6 +24,8 @@ interface MembershipBillingProps {
   onSimulateGracePeriod: () => void;
   onResetStatus: () => void;
   patientCount: number;
+  patientNames?: string[];
+  cardholderName?: string;
 }
 
 export default function MembershipBilling({
@@ -32,6 +34,8 @@ export default function MembershipBilling({
   onSimulateGracePeriod,
   onResetStatus,
   patientCount,
+  patientNames = [],
+  cardholderName = '',
 }: MembershipBillingProps) {
   const [selectedPlanModal, setSelectedPlanModal] = useState<MembershipPlanType | null>(null);
   const [showCardUpdateModal, setShowCardUpdateModal] = useState(false);
@@ -65,6 +69,11 @@ export default function MembershipBilling({
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Active Subscription</span>
                   </>
+                ) : membership.status === 'trial' ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Free Trial</span>
+                  </>
                 ) : (
                   <>
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
@@ -81,7 +90,11 @@ export default function MembershipBilling({
               {membership.priceFormatted}
             </h2>
             <p className="text-xs text-slate-600 max-w-xl">
-              Next scheduled renewal is on <strong className="text-slate-900">{membership.renewalDate}</strong> ({membership.daysRemaining} days remaining). Automatic backup billing to Visa •••• {cardLast4}.
+              {membership.status === 'trial' ? (
+                <>Your free trial ends on <strong className="text-slate-900">{membership.renewalDate}</strong> ({membership.daysRemaining} days left). {cardLast4 ? <>Billing will use your card ending {cardLast4}.</> : 'No card on file yet.'}</>
+              ) : (
+                <>Next scheduled renewal is on <strong className="text-slate-900">{membership.renewalDate}</strong> ({membership.daysRemaining} days remaining). {cardLast4 ? <>Automatic backup billing to Visa •••• {cardLast4}.</> : 'No card on file yet.'}</>
+              )}
             </p>
           </div>
 
@@ -149,7 +162,7 @@ export default function MembershipBilling({
               />
             </div>
             <p className="text-[11px] text-slate-500 pt-0.5">
-              Eleanor Miller (Mother) &amp; Robert Miller (Father)
+              {patientNames.length > 0 ? patientNames.join(' & ') : 'No one added yet'}
             </p>
           </div>
 
@@ -170,7 +183,7 @@ export default function MembershipBilling({
               />
             </div>
             <p className="text-[11px] text-slate-500 pt-0.5">
-              82 minutes remaining this cycle. Auto-renews next month.
+              {membership.features.aiVoiceMinutesTotal - membership.features.aiVoiceMinutesUsed} minutes remaining this cycle.
             </p>
           </div>
 
@@ -366,6 +379,7 @@ export default function MembershipBilling({
             </span>
           </div>
 
+          {cardLast4 ? (
           <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 text-white space-y-3 shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">KINOTE Medical Pay</span>
@@ -375,16 +389,21 @@ export default function MembershipBilling({
               •••• •••• •••• {cardLast4}
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span>Cardholder: David Miller</span>
+              <span>Cardholder: {cardholderName || 'Account holder'}</span>
               <span>Expires: {membership.paymentMethod.expMonth}/{membership.paymentMethod.expYear}</span>
             </div>
           </div>
+          ) : (
+            <div className="p-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-500">
+              No card on file yet.
+            </div>
+          )}
 
           <button
             onClick={() => setShowCardUpdateModal(true)}
             className="w-full py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
           >
-            Update Card or Billing Address
+            {cardLast4 ? 'Update Card or Billing Address' : 'Add a Card'}
           </button>
         </div>
 
@@ -396,6 +415,9 @@ export default function MembershipBilling({
           </div>
 
           <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden text-xs">
+            {membership.invoices.length === 0 && (
+              <div className="p-4 text-slate-500 bg-white">No invoices yet. Your first invoice appears after the trial ends.</div>
+            )}
             {membership.invoices.map((inv) => (
               <div key={inv.id} className="p-3.5 flex items-center justify-between bg-white hover:bg-slate-50/70 transition-colors">
                 <div className="flex items-center gap-3">
