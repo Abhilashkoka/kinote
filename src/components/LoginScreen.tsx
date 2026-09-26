@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { AuthUser, UserRole } from '../types';
 import { DEMO_USERS } from '../utils/mockPatients';
+import { saveLovedOneName } from '../utils/newAccount';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: AuthUser) => void;
@@ -210,76 +211,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       saveRegisteredUser(freshUser);
       void saveCredential(freshUser.email, newPassword);
 
-      // If they provided a loved one's name, save a customized patient profile in localStorage
-      if (patientMonitoredName.trim()) {
-        try {
-          const existingPatients = JSON.parse(localStorage.getItem('kinote_patients_list') || '[]');
-          const customPatient = {
-            id: `patient-custom-${Date.now()}`,
-            name: patientMonitoredName.trim(),
-            relationship: 'Loved One',
-            age: 78,
-            gender: 'Monitored Family Member',
-            roomOrUnit: 'Primary Residence',
-            primaryCondition: 'Cardiovascular & Vitals Telemetry',
-            avatarBg: 'bg-emerald-700',
-            location: {
-              id: 'loc_home',
-              label: `${patientMonitoredName.trim()}'s Residence`,
-              address: 'Private Residence, USA',
-              coordinates: { lat: 37.7749, lng: -122.4194 },
-              dispatchPreference: 'closest_hospital_er' as const,
-              nearestPSAP: 'Local County 911 PSAP',
-              accessNotes: 'Keycode in family vault',
-            },
-            vitals: {
-              heartRate: 0,
-              bloodPressureSystolic: 0,
-              bloodPressureDiastolic: 0,
-              spo2: 0,
-              respiratoryRate: 0,
-              skinTemperature: 0,
-              glucoseLevel: 0,
-              hrv: 0,
-              stressLevel: 0,
-              lastUpdated: 'Awaiting device sync',
-              batteryLevel: 0,
-              fallDetected: false,
-              ecgStatus: 'normal_sinus' as const,
-            },
-            thresholds: {
-              heartRate: { minCritical: 48, minWarning: 55, maxWarning: 105, maxCritical: 125 },
-              bloodPressureSystolic: { minCritical: 88, minWarning: 95, maxWarning: 140, maxCritical: 165 },
-              bloodPressureDiastolic: { minCritical: 55, minWarning: 60, maxWarning: 90, maxCritical: 105 },
-              spo2: { minCritical: 90, minWarning: 93, maxWarning: 100, maxCritical: 100 },
-              glucose: { minCritical: 65, minWarning: 75, maxWarning: 160, maxCritical: 200 },
-              skinTemperature: { minCritical: 95.0, minWarning: 96.5, maxWarning: 99.8, maxCritical: 101.5 },
-              wearableSyncProtocol: 'continuous_realtime' as const,
-              requireEmergencyChime: true,
-              autoEscalateToEMSAfterSeconds: 90,
-            },
-            medications: [],
-            doseLogs: [],
-            devices: [],
-            emergencyContacts: [
-              {
-                id: `cont-${Date.now()}`,
-                name: freshUser.name,
-                relation: 'Primary Caregiver',
-                phone: freshUser.phone,
-                email: freshUser.email,
-                priorityOrder: 1,
-                notifyOnWarning: true,
-                notifyOnCritical: true,
-                receiveAIVoiceCall: true,
-              }
-            ],
-          };
-          localStorage.setItem('kinote_patients_list', JSON.stringify([customPatient, ...existingPatients]));
-        } catch {
-          // ignore
-        }
-      }
+      // Remember the loved one's name so their profile is created with it
+      saveLovedOneName(freshUser.id, patientMonitoredName);
 
       onLoginSuccess(freshUser);
     }, 850);
