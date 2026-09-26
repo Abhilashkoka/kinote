@@ -120,7 +120,7 @@ export default function KinoteAIAssistant({
           `• **Cardiovascular:** Resting heart rate is steady at **${vitals.heartRate} BPM** (Target: ${thresholds.heartRate.minWarn}–${thresholds.heartRate.maxWarn} BPM). Blood pressure is currently **${vitals.bloodPressureSystolic}/${vitals.bloodPressureDiastolic} mmHg**.\n` +
           `• **Respiratory & Oxygenation:** SpO2 is **${vitals.spo2}%** with a respiratory rate of **${vitals.respiratoryRate} breaths/min**.\n` +
           `• **Mobility & Fall Protection:** Multi-sensor accelerometer quorum is active. ${vitals.fallDetected ? '🚨 A fall shock was recently recorded!' : 'Zero fall impacts recorded in the last 24 hours.'}\n` +
-          `• **Active Location:** ${patientLocation.label} (${patientLocation.address}). Dispatch profile: ${patientLocation.dispatchPreference.replace(/_/g, ' ').toUpperCase()}.\n` +
+          `• **Active Location:** ${patientLocation.address ? `${patientLocation.label} (${patientLocation.address})` : 'No address added yet'}. Dispatch profile: ${patientLocation.dispatchPreference.replace(/_/g, ' ').toUpperCase()}.\n` +
           `• **Recommendation:** Continue current medication protocol. Ensure adequate fluid intake this afternoon.`,
         insights: [
           `Heart Rate variability (HRV) is within normal age-adjusted band (38ms)`,
@@ -255,7 +255,7 @@ export default function KinoteAIAssistant({
           `Per your configured architecture decisions, emergency response operates in an **Option A ➔ Option C ➔ Option B** sequence:\n\n` +
           `1. **Stage 1 (Senior Voice Check):** AI voice caller dials Eleanor (+1 555-321-7788) with a ${thresholds.gracePeriodSeconds}s grace window to check if she is conscious and safe.\n` +
           `2. **Stage 2 (Caregiver Escalation):** If Eleanor does not respond or expresses distress, immediate high-priority push notifications and phone calls escalate to you (David Miller).\n` +
-          `3. **Stage 3 (EMS Bridge):** Automated 3-way conference bridge with municipal emergency relay (**${patientLocation.nearestPSAP}**) transmitting live GPS coordinates and biometric vitals telemetry.\n\n` +
+          `3. **Stage 3 (EMS Bridge):** Automated 3-way conference bridge with municipal emergency relay (**${patientLocation.nearestPSAP || 'local 911 services'}**) transmitting live GPS coordinates and biometric vitals telemetry.\n\n` +
           `Total emergency voice calls logged to date: **${callLogs.length}** (All resolved safely).`,
         insights: [
           `Active Dispatch Profile: ${patientLocation.label}`,
