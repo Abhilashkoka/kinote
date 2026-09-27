@@ -240,6 +240,7 @@ export default function PatientSwitcher({
                 setShowAddModal(true);
               }}
               disabled={isAtLimit}
+              title={isAtLimit ? `${membership.planName} covers ${membership.maxSeniors} ${membership.maxSeniors === 1 ? 'person' : 'people'}. Upgrade in Membership & Billing to add more.` : undefined}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all text-xs ${
                 isAtLimit
                   ? 'text-slate-400 bg-slate-100 cursor-not-allowed'
@@ -247,7 +248,7 @@ export default function PatientSwitcher({
               }`}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>{isAtLimit ? 'Plan Limit Reached (3/3)' : 'Add Monitored Relative'}</span>
+              <span>{isAtLimit ? `Plan covers ${membership.maxSeniors} · Upgrade to add more` : 'Add Monitored Relative'}</span>
             </button>
             <button
               onClick={() => setIsOpen(false)}
