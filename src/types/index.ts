@@ -139,6 +139,8 @@ export interface PatientLocation {
   coordinates: { lat: number; lng: number };
   nearestPSAP: string;
   dispatchPreference: EMSDispatchMode;
+  /** ISO country code (e.g. "IN", "US") used to pick the right emergency number. */
+  countryCode?: string;
 }
 
 export interface MetricThresholds {
