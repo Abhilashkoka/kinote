@@ -25,6 +25,9 @@ interface AIVoiceCallModalProps {
   currentVitalsSummary: string;
   patientLocation: PatientLocation;
   onCallResolved: (log: AIVoiceCallLog) => void;
+  caregiverName?: string;
+  caregiverPhone?: string;
+  patientPhone?: string;
 }
 
 export default function AIVoiceCallModal({
@@ -35,7 +38,13 @@ export default function AIVoiceCallModal({
   currentVitalsSummary,
   patientLocation,
   onCallResolved,
+  caregiverName = '',
+  caregiverPhone = '',
+  patientPhone = '',
 }: AIVoiceCallModalProps) {
+  // Names and numbers come from the monitored person's emergency contacts, never hard-coded
+  const caregiverLabel = caregiverName.trim() || 'your caregiver';
+  const caregiverFirstName = caregiverName.trim().split(' ')[0] || 'Caregiver';
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
@@ -97,7 +106,7 @@ export default function AIVoiceCallModal({
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       
       const greeting = isMedicationAlert
-        ? `Hello ${patientName}. This is KINOTE AI Health Assistant calling on behalf of your son David. We noticed your scheduled medication has not been marked as taken yet. Are you doing alright, and can you take your medication now with water?`
+        ? `Hello ${patientName}. This is KINOTE AI Health Assistant calling on behalf of ${caregiverLabel}. We noticed your scheduled medication has not been marked as taken yet. Are you doing alright, and can you take your medication now with water?`
         : `Hello ${patientName}. This is KINOTE Emergency Voice Dispatch. We detected: ${triggerReason}. Are you safe and conscious? Please speak or press a button to tell me how you are feeling.`;
 
       setTranscript([
@@ -135,30 +144,30 @@ export default function AIVoiceCallModal({
 
     if (responseType === 'taking_now') {
       patientText = "Oh dear, I was distracted and forgot! I have my water glass and I am taking the pill right now.";
-      aiResponse = `Wonderful, ${patientName}! I have recorded your dose as confirmed taken now, and I am sending a confirmation to David Miller so he knows you are doing well. Please rest comfortably.`;
+      aiResponse = `Wonderful, ${patientName}! I have recorded your dose as confirmed taken now, and I am sending a confirmation to ${caregiverLabel} so they know you are doing well. Please rest comfortably.`;
       setPatientStatus('ok');
     } else if (responseType === 'nauseous') {
       patientText = "I was feeling a little queasy and nauseous earlier, so I decided to delay the dose.";
-      aiResponse = `Thank you for letting me know, ${patientName}. I have documented this clinical context for Dr. Thorne and sent a note to David Miller to follow up with you gently.`;
+      aiResponse = `Thank you for letting me know, ${patientName}. I have documented this clinical context for your care team and sent a note to ${caregiverLabel} to follow up with you gently.`;
       setPatientStatus('ok');
     } else if (responseType === 'ok') {
       patientText = "I am okay, it was just sudden movement or a false alarm. I'm feeling fine.";
-      aiResponse = `Understood, ${patientName}. I have marked this as safe. I am notifying your primary caregiver David Miller that you are conscious and doing well. Stay hydrated.`;
+      aiResponse = `Understood, ${patientName}. I have marked this as safe. I am notifying ${caregiverLabel} that you are conscious and doing well. Stay hydrated.`;
       setPatientStatus('ok');
     } else if (responseType === 'dizzy') {
       patientText = "I am feeling very dizzy and lightheaded. My chest feels tight.";
-      aiResponse = `Please sit or lie down immediately in a safe position. Escalating to Stage 2: Notifying your son David Miller and patching him into this call.`;
+      aiResponse = `Please sit or lie down immediately in a safe position. Escalating to Stage 2: Notifying ${caregiverLabel} and patching them into this call.`;
       setPatientStatus('distressed');
       // Escalate to Stage 2 (Option C)
       setTimeout(() => escalateToCaregiver(), 2000);
     } else if (responseType === 'fall') {
       patientText = "I had a fall on the floor and I am unable to get back up. Please send help!";
-      aiResponse = `Do not attempt to strain yourself. Escalating immediately to Stage 2 and alerting David Miller, while preparing EMS relay for ${patientLocation.label}.`;
+      aiResponse = `Do not attempt to strain yourself. Escalating immediately to Stage 2 and alerting ${caregiverLabel}, while preparing EMS relay for ${patientLocation.label}.`;
       setPatientStatus('distressed');
       setTimeout(() => escalateToCaregiver(), 2000);
     } else {
       patientText = "I have acute chest pain and shortness of breath.";
-      aiResponse = `Emergency Protocol Priority 1 activated. Bridging to Stage 3: Immediate 3-Way Conference with ${patientLocation.nearestPSAP || 'local 911 services'} and David Miller.`;
+      aiResponse = `Emergency Protocol Priority 1 activated. Bridging to Stage 3: Immediate 3-Way Conference with ${patientLocation.nearestPSAP || 'local 911 services'} and ${caregiverLabel}.`;
       setPatientStatus('distressed');
       setTimeout(() => escalateToConference(), 2000);
     }
@@ -180,8 +189,8 @@ export default function AIVoiceCallModal({
   const escalateToCaregiver = () => {
     setTriageStage('stage2_caregiver');
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const msg = `[Stage 2 / Option C Activated] Direct Outbound Priority Bridge to David Miller (+1 555-234-8901). Senior expressed distress.`;
-    const aiSpeech = `David, KINOTE has bridged you to Eleanor. Her pulse is elevated and she reported distress. Location: ${patientLocation.address || 'the address on file (none added yet)'}.`;
+    const msg = `[Stage 2 / Option C Activated] Direct Outbound Priority Bridge to ${caregiverName.trim() || 'the primary caregiver'} (${caregiverPhone.trim() || 'no phone number on file'}). Senior expressed distress.`;
+    const aiSpeech = `${caregiverFirstName}, KINOTE has bridged you to ${patientName}. Their pulse is elevated and they reported distress. Location: ${patientLocation.address || 'the address on file (none added yet)'}.`;
 
     setTranscript((prev) => [
       ...prev,
@@ -215,7 +224,7 @@ export default function AIVoiceCallModal({
       id: `call_${Date.now()}`,
       timestamp: 'Just now',
       recipientName: patientName,
-      recipientPhone: '+1 (555) 321-7788',
+      recipientPhone: patientPhone.trim() || 'No number on file',
       triggerReason: triggerReason,
       durationSeconds: Math.max(callDuration, 15),
       callStatus: callStatus === 'dispatched' ? 'escalated_to_911' : 'completed',
