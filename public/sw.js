@@ -1,7 +1,7 @@
 // KINOTE Progressive Web App Service Worker
 // Provides offline-first asset caching, vital telemetry resilience, and Google Play TWA compliance
 
-const CACHE_NAME = 'kinote-pwa-v1';
+const CACHE_NAME = 'kinote-pwa-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -46,6 +46,12 @@ self.addEventListener('fetch', (event) => {
 
   // Leave other origins (e.g. the Supabase API and live alerts) to the browser, never cache them
   if (new URL(request.url).origin !== self.location.origin) {
+    return;
+  }
+
+  // Never cache dev-server modules (Vite serves source files at these paths)
+  const path = new URL(request.url).pathname;
+  if (path.startsWith('/src/') || path.startsWith('/@') || path.startsWith('/node_modules/')) {
     return;
   }
 
