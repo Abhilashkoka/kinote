@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   Heart, 
   Sliders, 
@@ -86,6 +86,7 @@ import { CleanLiveTestingModal } from './components/CleanLiveTestingModal';
 import { playEmergencyChime, speakText } from './utils/speech';
 import { EMPTY_LOCATION, sanitizeCustomPatient, PatientWithLocations } from './utils/location';
 import { createNewAccountMembership, createNewAccountAuditLogs, membershipStorageKey, readLovedOneName } from './utils/newAccount';
+import { useCloudPatientSync } from './utils/cloudSync';
 
 // Check if a user is a pre-canned demo account
 export const isDemoUser = (user: AuthUser | null): boolean => {
@@ -276,6 +277,35 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Cloud sync (Supabase): the active patient's live edits folded in, saved and loaded across linked phones.
+  const patientsForSync = useMemo(
+    () =>
+      patients.map((p) =>
+        p.id === activePatient.id
+          ? { ...p, thresholds, devices, emergencyContacts, medications, doseLogs, location: currentLocation }
+          : p,
+      ),
+    [patients, activePatient.id, thresholds, devices, emergencyContacts, medications, doseLogs, currentLocation],
+  );
+  useCloudPatientSync({
+    userKey: currentUser?.id ?? 'signed-out',
+    patients: patientsForSync,
+    activePatientId: activePatient.id,
+    activeVitals: vitals,
+    onPulled: (merged) => {
+      setPatients(merged);
+      const active = merged.find((p) => p.id === activePatient.id);
+      if (active) {
+        setThresholds(active.thresholds);
+        setDevices(active.devices);
+        setEmergencyContacts(active.emergencyContacts);
+        setMedications(active.medications);
+        setDoseLogs(active.doseLogs);
+        if (active.location) setCurrentLocation(active.location);
+      }
+    },
+  });
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
