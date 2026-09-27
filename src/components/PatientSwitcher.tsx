@@ -270,7 +270,7 @@ export default function PatientSwitcher({
       </>
       )}
 
-      {showLinkPanel && createPortal(<FamilyLinkPanel onClose={() => setShowLinkPanel(false)} />, document.body)}
+      {showLinkPanel && createPortal(<FamilyLinkPanel onClose={() => setShowLinkPanel(false)} patient={{ id: activePatient.id, name: activePatient.name }} />, document.body)}
 
       {/* Rename Monitored Person Modal (portalled to <body> so the header's blur doesn't clip it) */}
       {renameTargetId && createPortal(

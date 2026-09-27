@@ -18,9 +18,12 @@ import {
   CloudProfile,
   CloudLink,
 } from '../utils/backend';
+import { useCloudSyncStatus } from '../utils/cloudSync';
 
 interface FamilyLinkPanelProps {
   onClose: () => void;
+  /** The person on screen: an invite code links whoever accepts it to this patient's data. */
+  patient?: { id: string; name: string };
 }
 
 type Linked = { link: CloudLink; person: CloudProfile; theyAre: 'caregiver' | 'senior' };
@@ -29,7 +32,8 @@ const inputClass = 'w-full px-3 py-2 border border-slate-300 rounded-xl text-xs 
 const primaryBtn = 'whitespace-nowrap px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-xs font-bold cursor-pointer';
 const ghostBtn = 'px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold cursor-pointer';
 
-export default function FamilyLinkPanel({ onClose }: FamilyLinkPanelProps) {
+export default function FamilyLinkPanel({ onClose, patient }: FamilyLinkPanelProps) {
+  const sync = useCloudSyncStatus();
   const enabled = isBackendEnabled();
   const [userId, setUserId] = useState<string | null>(null);
   const [checking, setChecking] = useState(enabled);
@@ -207,9 +211,28 @@ export default function FamilyLinkPanel({ onClose }: FamilyLinkPanelProps) {
         {/* Signed in */}
         {enabled && userId && (
           <div className="space-y-4 text-xs">
+            <p
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] ${
+                sync.state === 'error' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-800'
+              }`}
+            >
+              <Cloud className="w-3.5 h-3.5 shrink-0" />
+              {sync.state === 'error'
+                ? `Health data not synced: ${sync.error}`
+                : sync.state === 'saving'
+                  ? 'Saving health data…'
+                  : sync.lastSavedAt
+                    ? `Health data synced · ${new Date(sync.lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    : 'Health data syncs with linked phones'}
+            </p>
             {/* Invite (caregiver side) */}
             <section className="space-y-2">
-              <p className="font-bold text-slate-800">Invite a parent / loved one</p>
+              <p className="font-bold text-slate-800">Invite {patient ? patient.name : 'a parent / loved one'}</p>
+              {patient && (
+                <p className="text-[11px] text-slate-500">
+                  Whoever accepts this code joins as {patient.name} and sees {patient.name}'s health data.
+                </p>
+              )}
               {!inviteCode ? (
                 <div className="flex gap-2">
                   <input
@@ -222,7 +245,7 @@ export default function FamilyLinkPanel({ onClose }: FamilyLinkPanelProps) {
                   <button
                     className={primaryBtn}
                     disabled={busy}
-                    onClick={() => run(async () => setInviteCode(await createInvite(inviteFor)))}
+                    onClick={() => run(async () => setInviteCode(await createInvite(inviteFor, patient?.id)))}
                   >
                     Create code
                   </button>
