@@ -54,6 +54,9 @@ export default function SeniorSafeView({
   onRemoveAllDevices,
   onOpenPairModal,
 }: SeniorSafeViewProps) {
+  // Emergency contact shown to the senior comes from their saved contacts, never a hard-coded name
+  const contactLabel = primaryContactName.trim() || 'your emergency contact';
+  const hasContactPhone = primaryContactPhone.trim().length > 0;
   const [highContrast, setHighContrast] = useState(false);
   const [medsTaken, setMedsTaken] = useState(true);
   const [waterCups, setWaterCups] = useState(3);
@@ -80,7 +83,7 @@ export default function SeniorSafeView({
       return;
     }
     const text = isAbnormal
-      ? `Attention ${patientName}. Your current heart rate is ${vitals.heartRate} beats per minute and blood oxygen is ${vitals.spo2} percent. Our system has flagged an abnormal vital. Please rest comfortably. ${primaryContactName} has been notified.`
+      ? `Attention ${patientName}. Your current heart rate is ${vitals.heartRate} beats per minute and blood oxygen is ${vitals.spo2} percent. Our system has flagged an abnormal vital. Please rest comfortably. ${contactLabel} has been notified.`
       : `Hello ${patientName}. Everything is looking normal and steady. Your heart rate is ${vitals.heartRate} beats per minute, blood pressure is ${vitals.bloodPressureSystolic} over ${vitals.bloodPressureDiastolic}, and oxygen is ${vitals.spo2} percent. You are doing wonderful.`;
     speakText(text);
   };
@@ -407,8 +410,8 @@ export default function SeniorSafeView({
               </h2>
               <p className="text-base mt-1 text-slate-700 max-w-xl">
                 {isAbnormal
-                  ? 'Your pulse or oxygen reading triggered a caution alert. Rest seated; your caregiver David has received an automatic update.'
-                  : 'All measurements from your watch and cuff match your healthy baseline. David Miller and Sarah are connected.'}
+                  ? `Your pulse or oxygen reading triggered a caution alert. Rest seated; ${contactLabel} has received an automatic update.`
+                  : `All measurements from your watch and cuff match your healthy baseline. ${contactLabel} is connected.`}
               </p>
             </div>
           </div>
@@ -504,7 +507,7 @@ export default function SeniorSafeView({
           <div className="text-center lg:text-left">
             <h3 className="text-2xl font-bold text-white">Need Immediate Help or Feeling Unwell?</h3>
             <p className="text-slate-300 text-base mt-1 max-w-xl">
-              Tap the Emergency SOS button below. It notifies your son David ({primaryContactPhone}) and initiates an instant voice response check.
+              Tap the Emergency SOS button below. It notifies {contactLabel}{hasContactPhone ? ` (${primaryContactPhone})` : ''} and initiates an instant voice response check.
             </p>
           </div>
 
@@ -529,13 +532,20 @@ export default function SeniorSafeView({
               </button>
             )}
 
-            <a
-              href={`tel:${primaryContactPhone}`}
-              className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-lg font-bold flex items-center justify-center gap-3 transition-colors"
-            >
-              <Phone className="w-6 h-6 text-emerald-400" />
-              <span>Call {primaryContactName}</span>
-            </a>
+            {hasContactPhone ? (
+              <a
+                href={`tel:${primaryContactPhone}`}
+                className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-lg font-bold flex items-center justify-center gap-3 transition-colors"
+              >
+                <Phone className="w-6 h-6 text-emerald-400" />
+                <span>Call {primaryContactName || 'Emergency Contact'}</span>
+              </a>
+            ) : (
+              <div className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-slate-800/60 border border-dashed border-slate-600 text-slate-300 text-base font-semibold flex items-center justify-center gap-3">
+                <Phone className="w-6 h-6 text-slate-500" />
+                <span>No phone number for {contactLabel} yet</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
