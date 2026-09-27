@@ -44,6 +44,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Leave other origins (e.g. the Supabase API and live alerts) to the browser, never cache them
+  if (new URL(request.url).origin !== self.location.origin) {
+    return;
+  }
+
   // HTML navigation requests: NetworkFirst with cache fallback
   if (request.mode === 'navigate') {
     event.respondWith(
