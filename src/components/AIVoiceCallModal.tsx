@@ -15,7 +15,8 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { speakText, playEmergencyChime } from '../utils/speech';
-import { EMERGENCY_NUMBER, emergencyTelLink, nearestHospitalsUrl } from '../utils/emergency';
+import { nearestHospitalsUrl, resolvePatientService, telLink } from '../utils/emergency';
+import EmergencyCountryPicker, { useCallerService } from './EmergencyCountryPicker';
 import { raiseCloudAlertIfSignedIn } from '../utils/backend';
 import { AIVoiceCallLog, PatientLocation } from '../types';
 
@@ -47,6 +48,19 @@ export default function AIVoiceCallModal({
   // Names and numbers come from the monitored person's emergency contacts, never hard-coded
   const caregiverLabel = caregiverName.trim() || 'your caregiver';
   const caregiverFirstName = caregiverName.trim().split(' ')[0] || 'Caregiver';
+
+  // Which emergency numbers apply: this phone's country (what the Call button can reach) and the
+  // monitored person's country (what someone next to them must dial). They differ when family is abroad.
+  const [callerEmergency, setCallerCountry] = useCallerService();
+  const patientEmergency = resolvePatientService({
+    countryCode: patientLocation.countryCode,
+    address: patientLocation.address,
+    phones: [patientPhone],
+  });
+  const dispatchEmergency = patientEmergency ?? callerEmergency;
+  const localEmsLabel = patientLocation.nearestPSAP || `local emergency services (${dispatchEmergency.service.primary})`;
+  const patientIsElsewhere =
+    !!patientEmergency && !!callerEmergency.service.country && patientEmergency.service.country !== callerEmergency.service.country;
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
@@ -169,7 +183,7 @@ export default function AIVoiceCallModal({
       setTimeout(() => escalateToCaregiver(), 2000);
     } else {
       patientText = "I have acute chest pain and shortness of breath.";
-      aiResponse = `Emergency Protocol Priority 1 activated. Bridging to Stage 3: Immediate 3-Way Conference with ${patientLocation.nearestPSAP || 'local 911 services'} and ${caregiverLabel}.`;
+      aiResponse = `Emergency Protocol Priority 1 activated. Bridging to Stage 3: Immediate 3-Way Conference with ${localEmsLabel} and ${caregiverLabel}.`;
       setPatientStatus('distressed');
       setTimeout(() => escalateToConference(), 2000);
     }
@@ -214,7 +228,7 @@ export default function AIVoiceCallModal({
     setTriageStage('stage3_conference');
     setCallStatus('dispatched');
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const dispatchMsg = `[Stage 3 / Option B Activated] 3-Way Conference Bridge Established: Senior + Caregiver + ${patientLocation.nearestPSAP || 'local 911 services'} (${patientLocation.dispatchPreference.toUpperCase()}). Paramedic unit dispatched to ${patientLocation.address || 'the address on file (none added yet)'}.`;
+    const dispatchMsg = `[Stage 3 / Option B Activated] 3-Way Conference Bridge Established: Senior + Caregiver + ${localEmsLabel} (${patientLocation.dispatchPreference.toUpperCase()}). Paramedic unit dispatched to ${patientLocation.address || 'the address on file (none added yet)'}.`;
 
     setTranscript((prev) => [
       ...prev,
@@ -472,11 +486,20 @@ export default function AIVoiceCallModal({
         <div className="px-6 py-3 bg-rose-950/40 border-t border-rose-900/50 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-rose-200/80 mr-auto">Real emergency? Don't wait for the simulation.</span>
           <a
-            href={emergencyTelLink}
+            href={telLink(callerEmergency.service.primary)}
             className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold"
+            title={`Emergency services in ${callerEmergency.service.name}`}
           >
-            Call {EMERGENCY_NUMBER}
+            Call {callerEmergency.service.primary}
           </a>
+          {callerEmergency.service.ambulance && (
+            <a
+              href={telLink(callerEmergency.service.ambulance)}
+              className="px-3 py-1.5 rounded-lg bg-rose-900/60 hover:bg-rose-800 border border-rose-700 text-rose-100 font-bold"
+            >
+              Ambulance {callerEmergency.service.ambulance}
+            </a>
+          )}
           <a
             href={nearestHospitalsUrl(patientLocation.address)}
             target="_blank"
@@ -485,6 +508,17 @@ export default function AIVoiceCallModal({
           >
             Nearest hospitals
           </a>
+          <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
+            <EmergencyCountryPicker resolved={callerEmergency} onChange={setCallerCountry} tone="dark" />
+            {callerEmergency.service.note && <span className="text-[11px] text-rose-200/60">{callerEmergency.service.note}</span>}
+          </div>
+          {patientIsElsewhere && patientEmergency && (
+            <p className="w-full text-[11px] text-amber-200 bg-amber-950/40 border border-amber-800/60 rounded-lg px-3 py-2">
+              {patientName} is in {patientEmergency.service.name}. Emergency services there are {patientEmergency.service.primary}
+              {patientEmergency.service.ambulance ? ` (ambulance ${patientEmergency.service.ambulance})` : ''} and can only be reached from a
+              phone in {patientEmergency.service.name}. Call {patientName} or someone near them and ask them to dial it.
+            </p>
+          )}
         </div>
 
         {/* Action Controls & Dispatch */}
@@ -511,7 +545,7 @@ export default function AIVoiceCallModal({
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:bg-red-950 disabled:text-red-400/60 text-white text-xs font-semibold shadow-md transition-colors"
             >
               <Ambulance className="w-4 h-4" />
-              <span>{callStatus === 'dispatched' ? 'EMS Dispatched' : `Bridge 3-Way EMS (${(patientLocation.nearestPSAP || 'Local 911').slice(0, 16)}...)`}</span>
+              <span>{callStatus === 'dispatched' ? 'EMS Dispatched' : `Bridge 3-Way EMS (${(patientLocation.nearestPSAP || `Local ${dispatchEmergency.service.primary}`).slice(0, 16)}...)`}</span>
             </button>
 
             <button

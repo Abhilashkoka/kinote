@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 import { VitalsReading, MedicationItem, MedicationDoseLog, MedicationDoseStatus, WearableDevice } from '../types';
 import { speakText } from '../utils/speech';
-import { EMERGENCY_NUMBER, emergencyTelLink } from '../utils/emergency';
+import { telLink } from '../utils/emergency';
+import EmergencyCountryPicker, { useCallerService } from './EmergencyCountryPicker';
 import { raiseCloudAlertIfSignedIn } from '../utils/backend';
 
 interface SeniorSafeViewProps {
@@ -59,6 +60,8 @@ export default function SeniorSafeView({
   // Emergency contact shown to the senior comes from their saved contacts, never a hard-coded name
   const contactLabel = primaryContactName.trim() || 'your emergency contact';
   const hasContactPhone = primaryContactPhone.trim().length > 0;
+  // Emergency number for the country this phone is in (the senior's own phone in SafeMode)
+  const [emergency, setEmergencyCountry] = useCallerService();
   const [highContrast, setHighContrast] = useState(false);
   const [medsTaken, setMedsTaken] = useState(true);
   const [waterCups, setWaterCups] = useState(3);
@@ -552,13 +555,24 @@ export default function SeniorSafeView({
             )}
 
             <a
-              href={emergencyTelLink}
+              href={telLink(emergency.service.primary)}
               className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-white hover:bg-rose-50 text-rose-700 text-lg font-black flex items-center justify-center gap-3 transition-colors"
-              title="Calls emergency services from this phone"
+              title={`Calls emergency services in ${emergency.service.name} from this phone`}
             >
               <Phone className="w-6 h-6 text-rose-600" />
-              <span>Call {EMERGENCY_NUMBER}</span>
+              <span>Call {emergency.service.primary}</span>
             </a>
+
+            {emergency.service.ambulance && (
+              <a
+                href={telLink(emergency.service.ambulance)}
+                className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-800 text-lg font-black flex items-center justify-center gap-3 transition-colors"
+                title={`Ambulance in ${emergency.service.name}`}
+              >
+                <Phone className="w-6 h-6 text-rose-600" />
+                <span>Ambulance {emergency.service.ambulance}</span>
+              </a>
+            )}
 
             {hasContactPhone ? (
               <a
@@ -575,6 +589,10 @@ export default function SeniorSafeView({
               </div>
             )}
           </div>
+        </div>
+        <div className="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-center lg:justify-start gap-x-3 gap-y-1">
+          <EmergencyCountryPicker resolved={emergency} onChange={setEmergencyCountry} tone="dark" />
+          {emergency.service.note && <span className="text-[11px] text-slate-400">{emergency.service.note}</span>}
         </div>
       </div>
 
