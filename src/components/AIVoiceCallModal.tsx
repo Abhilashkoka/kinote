@@ -15,6 +15,8 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { speakText, playEmergencyChime } from '../utils/speech';
+import { EMERGENCY_NUMBER, emergencyTelLink, nearestHospitalsUrl } from '../utils/emergency';
+import { raiseCloudAlertIfSignedIn } from '../utils/backend';
 import { AIVoiceCallLog, PatientLocation } from '../types';
 
 interface AIVoiceCallModalProps {
@@ -188,6 +190,12 @@ export default function AIVoiceCallModal({
   // Stage 2 (Option C): Escalate to Caregiver
   const escalateToCaregiver = () => {
     setTriageStage('stage2_caregiver');
+    raiseCloudAlertIfSignedIn({
+      kind: 'escalation',
+      severity: 'critical',
+      message: `${patientName} reported distress during a KINOTE check-in`,
+      location: patientLocation.address ? { label: patientLocation.label, address: patientLocation.address } : null,
+    });
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const msg = `[Stage 2 / Option C Activated] Direct Outbound Priority Bridge to ${caregiverName.trim() || 'the primary caregiver'} (${caregiverPhone.trim() || 'no phone number on file'}). Senior expressed distress.`;
     const aiSpeech = `${caregiverFirstName}, KINOTE has bridged you to ${patientName}. Their pulse is elevated and they reported distress. Location: ${patientLocation.address || 'the address on file (none added yet)'}.`;
@@ -458,6 +466,25 @@ export default function AIVoiceCallModal({
               </div>
             ))
           )}
+        </div>
+
+        {/* Real emergency actions: these use the phone's dialler and maps, nothing simulated */}
+        <div className="px-6 py-3 bg-rose-950/40 border-t border-rose-900/50 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-rose-200/80 mr-auto">Real emergency? Don't wait for the simulation.</span>
+          <a
+            href={emergencyTelLink}
+            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold"
+          >
+            Call {EMERGENCY_NUMBER}
+          </a>
+          <a
+            href={nearestHospitalsUrl(patientLocation.address)}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-semibold"
+          >
+            Nearest hospitals
+          </a>
         </div>
 
         {/* Action Controls & Dispatch */}

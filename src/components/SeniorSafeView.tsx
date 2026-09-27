@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
   Heart, 
   Activity, 
@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { VitalsReading, MedicationItem, MedicationDoseLog, MedicationDoseStatus, WearableDevice } from '../types';
 import { speakText } from '../utils/speech';
+import { EMERGENCY_NUMBER, emergencyTelLink } from '../utils/emergency';
+import { raiseCloudAlertIfSignedIn } from '../utils/backend';
 
 interface SeniorSafeViewProps {
   vitals: VitalsReading;
@@ -88,22 +90,39 @@ export default function SeniorSafeView({
     speakText(text);
   };
 
+  // Timer lives in a ref so Cancel really stops it (before, a cancelled countdown still fired the SOS)
+  const sosTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopSosTimer = () => {
+    if (sosTimerRef.current) {
+      clearInterval(sosTimerRef.current);
+      sosTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => stopSosTimer, []);
+
   const startSosFlow = () => {
-    setSosCountdown(5);
+    if (sosTimerRef.current) return;
+    let remaining = 5;
+    setSosCountdown(remaining);
     speakText('Emergency SOS initiated. Alerting family in 5 seconds.');
-    const timer = setInterval(() => {
-      setSosCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(timer);
-          onTriggerSOS();
-          return null;
-        }
-        return prev - 1;
-      });
+    sosTimerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        setSosCountdown(remaining);
+        return;
+      }
+      stopSosTimer();
+      setSosCountdown(null);
+      // Alert linked caregivers' phones when cloud sync is on (no-op otherwise)
+      raiseCloudAlertIfSignedIn({ kind: 'sos', severity: 'critical', message: `${patientName} pressed SOS` });
+      onTriggerSOS();
     }, 1000);
   };
 
   const cancelSos = () => {
+    stopSosTimer();
     setSosCountdown(null);
     speakText('Emergency alert cancelled.');
   };
@@ -531,6 +550,15 @@ export default function SeniorSafeView({
                 <span>EMERGENCY SOS</span>
               </button>
             )}
+
+            <a
+              href={emergencyTelLink}
+              className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-white hover:bg-rose-50 text-rose-700 text-lg font-black flex items-center justify-center gap-3 transition-colors"
+              title="Calls emergency services from this phone"
+            >
+              <Phone className="w-6 h-6 text-rose-600" />
+              <span>Call {EMERGENCY_NUMBER}</span>
+            </a>
 
             {hasContactPhone ? (
               <a

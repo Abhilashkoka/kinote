@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Users, 
   ChevronDown, 
@@ -9,9 +10,11 @@ import {
   ShieldCheck, 
   Check, 
   AlertTriangle,
-  Pencil
+  Pencil,
+  Link2
 } from 'lucide-react';
 import { PatientProfile, MembershipDetails } from '../types';
+import FamilyLinkPanel from './FamilyLinkPanel';
 
 interface PatientSwitcherProps {
   patients: PatientProfile[];
@@ -32,6 +35,7 @@ export default function PatientSwitcher({
 }: PatientSwitcherProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showLinkPanel, setShowLinkPanel] = useState(false);
   
   // New patient modal inputs
   const [newName, setNewName] = useState('');
@@ -251,18 +255,25 @@ export default function PatientSwitcher({
               <span>{isAtLimit ? `Plan covers ${membership.maxSeniors} · Upgrade to add more` : 'Add Monitored Relative'}</span>
             </button>
             <button
-              onClick={() => setIsOpen(false)}
-              className="text-slate-400 hover:text-slate-700 text-[11px]"
+              onClick={() => {
+                setIsOpen(false);
+                setShowLinkPanel(true);
+              }}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold text-teal-700 hover:bg-teal-100/80 cursor-pointer"
+              title="Link this app with a parent's or caregiver's phone"
             >
-              Close
+              <Link2 className="w-3.5 h-3.5" />
+              <span>Link phones</span>
             </button>
           </div>
         </div>
       </>
       )}
 
-      {/* Rename Monitored Person Modal */}
-      {renameTargetId && (
+      {showLinkPanel && createPortal(<FamilyLinkPanel onClose={() => setShowLinkPanel(false)} />, document.body)}
+
+      {/* Rename Monitored Person Modal (portalled to <body> so the header's blur doesn't clip it) */}
+      {renameTargetId && createPortal(
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -311,11 +322,12 @@ export default function PatientSwitcher({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Add New Monitored Relative Modal */}
-      {showAddModal && (
+      {showAddModal && createPortal(
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -405,7 +417,8 @@ export default function PatientSwitcher({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
