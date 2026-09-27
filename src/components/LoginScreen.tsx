@@ -201,7 +201,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         id: `user_${Date.now()}`,
         name: newName.trim(),
         email: newEmail.trim().toLowerCase(),
-        phone: newPhone.trim() || '+1 (555) 789-0123',
+        phone: newPhone.trim(),
         role: newRole,
         authMethod: 'email',
         lastLogin: 'Just now (Brand New Account)',
@@ -244,7 +244,16 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setTimeout(() => {
       setIsVerifying(false);
       const cleanPhone = phoneNumber.trim();
-      const matched = savedCustomUsers.find(u => u.phone === cleanPhone) || DEMO_USERS[0];
+      // Match on digits only so "+1 (555) 234-8901" and "15552348901" are the same number
+      const digits = (v: string) => (v || '').replace(/\D/g, '');
+      const target = digits(cleanPhone);
+      const matched = target.length >= 7
+        ? savedCustomUsers.find(u => digits(u.phone) === target) || DEMO_USERS.find(u => digits(u.phone) === target)
+        : undefined;
+      if (!matched) {
+        setErrorMessage('No account uses this mobile number. Sign up first, or sign in with email.');
+        return;
+      }
       onLoginSuccess({
         ...matched,
         authMethod: 'phone_otp',
