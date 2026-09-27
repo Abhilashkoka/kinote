@@ -45,6 +45,7 @@ import {
   MedicationDoseStatus
 } from '../types';
 import VitalTrends from './VitalTrends';
+import { COUNTRY_OPTIONS, countryFromAddress, detectDeviceCountry, resolvePatientService, serviceFor } from '../utils/emergency';
 import MedicationManagement from './MedicationManagement';
 import MedicationAdherenceCharts from './MedicationAdherenceCharts';
 
@@ -110,6 +111,13 @@ export default function CaregiverDashboard({
   const [newLocPSAP, setNewLocPSAP] = useState('');
   const [newLocMode, setNewLocMode] = useState<PatientLocation['dispatchPreference']>('caregiver_guided');
   const [newLocError, setNewLocError] = useState<string | null>(null);
+  const [newLocCountry, setNewLocCountry] = useState<string>(() => detectDeviceCountry() || '');
+
+  // Emergency numbers where the monitored person is (from the saved country, the address, or their contact's number)
+  const patientEmergency = resolvePatientService({
+    countryCode: patientLocation.countryCode,
+    address: patientLocation.address,
+  });
 
   const handleSaveNewLocation = () => {
     if (!newLocAddress.trim()) {
@@ -122,6 +130,7 @@ export default function CaregiverDashboard({
       coordinates: { lat: 0, lng: 0 },
       nearestPSAP: newLocPSAP.trim(),
       dispatchPreference: newLocMode,
+      countryCode: newLocCountry || countryFromAddress(newLocAddress) || undefined,
     });
     setNewLocLabel('');
     setNewLocAddress('');
@@ -208,6 +217,12 @@ export default function CaregiverDashboard({
               <p className="text-xs text-slate-500 mt-0.5">
                 EMS Route: <strong className="text-slate-800 uppercase">{patientLocation.dispatchPreference.replace(/_/g, ' ')}</strong>
                 {patientLocation.nearestPSAP ? <> · PSAP: {patientLocation.nearestPSAP}</> : null}
+                {patientEmergency ? (
+                  <>
+                    {' '}· Emergency in {patientEmergency.service.name}: <strong className="text-rose-700">{patientEmergency.service.primary}</strong>
+                    {patientEmergency.service.ambulance ? <> · Ambulance <strong className="text-rose-700">{patientEmergency.service.ambulance}</strong></> : null}
+                  </>
+                ) : null}
               </p>
             )}
           </div>
@@ -1088,6 +1103,20 @@ export default function CaregiverDashboard({
                     className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-teal-600"
                   />
                   <select
+                    id="new-location-country"
+                    value={newLocCountry}
+                    onChange={(e) => setNewLocCountry(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs bg-white focus:outline-hidden focus:border-teal-600"
+                    aria-label="Country"
+                  >
+                    <option value="">Country (sets the emergency number)</option>
+                    {COUNTRY_OPTIONS.map((c) => (
+                      <option key={c.country} value={c.country}>
+                        {c.name} · {c.primary}{c.ambulance ? ` / ${c.ambulance}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     id="new-location-mode"
                     value={newLocMode}
                     onChange={(e) => setNewLocMode(e.target.value as PatientLocation['dispatchPreference'])}
@@ -1095,7 +1124,7 @@ export default function CaregiverDashboard({
                   >
                     <option value="caregiver_guided">Call me (caregiver) first</option>
                     <option value="certified_monitoring">Certified monitoring center</option>
-                    <option value="direct_psap">Call 911 directly</option>
+                    <option value="direct_psap">Call {serviceFor(newLocCountry || countryFromAddress(newLocAddress)).primary} directly</option>
                   </select>
                   {newLocError && <p className="text-[11px] text-rose-600">{newLocError}</p>}
                   <button
