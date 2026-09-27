@@ -310,6 +310,39 @@ export default function App() {
     showToast(`Added ${newPatient.name} to family monitoring circle.`);
   };
 
+  // Rename a monitored person and save it (own profile for real accounts, demo list for demo users)
+  const handleRenamePatient = (patientId: string, newName: string) => {
+    const name = newName.trim();
+    if (!name) return;
+    const updated = patients.map((p) => (p.id === patientId ? { ...p, name } : p));
+    setPatients(updated);
+    try {
+      if (currentUser && !isDemoUser(currentUser)) {
+        const target = updated.find((p) => p.id === patientId);
+        if (target && target.id === `patient_${currentUser.id}`) {
+          localStorage.setItem('kinote_patient_' + currentUser.id, JSON.stringify(target));
+        }
+      } else {
+        localStorage.setItem('kinote_patients_list', JSON.stringify(updated));
+      }
+    } catch {}
+
+    const auditEntry: AuditLogEntry = {
+      id: `aud_${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
+      actor: currentUser?.email || 'caregiver',
+      actorRole: currentUser?.role || 'family_caregiver',
+      action: 'PATIENT_RENAMED',
+      resource: `patient.${patientId}.name`,
+      details: `Monitored person renamed to ${name}.`,
+      severity: 'INFO',
+      ipAddress: 'this device',
+      sha256Hash: Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+    };
+    setAuditLogs((prev) => [auditEntry, ...prev]);
+    showToast(`Renamed to ${name}.`);
+  };
+
   // Device Pairing Handler
   const handleDevicePaired = (newDevice: WearableDevice, initialVitals: Partial<VitalsReading>) => {
     const updatedDevices = [newDevice, ...devices.filter((d) => d.id !== newDevice.id)];
@@ -1213,6 +1246,7 @@ export default function App() {
                 onSelectPatient={handleSelectPatient}
                 membership={membership}
                 onAddNewPatient={handleAddNewPatient}
+                onRenamePatient={handleRenamePatient}
               />
             </div>
           </div>
@@ -1590,6 +1624,7 @@ export default function App() {
               onSelectPatient={handleSelectPatient}
               membership={membership}
               onAddNewPatient={handleAddNewPatient}
+              onRenamePatient={handleRenamePatient}
             />
           </div>
           <div className="text-[10px] font-mono text-teal-800 font-semibold shrink-0 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/60">
