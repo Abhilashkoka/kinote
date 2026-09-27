@@ -32,6 +32,7 @@ import { generateWeeklyHealthOverview } from '../utils/weeklyOverviewGenerator';
 import { calculateMedicationAdherence } from '../utils/medicationAdherence';
 import { generate30DayMedicationReport } from '../utils/medication30DayData';
 import { INITIAL_MEDICATIONS, INITIAL_DOSE_LOGS } from '../utils/mockData';
+import { resolvePatientService } from '../utils/emergency';
 
 interface KinoteAIAssistantProps {
   vitals: VitalsReading;
@@ -255,7 +256,7 @@ export default function KinoteAIAssistant({
           `Per your configured architecture decisions, emergency response operates in an **Option A ➔ Option C ➔ Option B** sequence:\n\n` +
           `1. **Stage 1 (Senior Voice Check):** AI voice caller dials Eleanor (+1 555-321-7788) with a ${thresholds.gracePeriodSeconds}s grace window to check if she is conscious and safe.\n` +
           `2. **Stage 2 (Caregiver Escalation):** If Eleanor does not respond or expresses distress, immediate high-priority push notifications and phone calls escalate to you (David Miller).\n` +
-          `3. **Stage 3 (EMS Bridge):** Automated 3-way conference bridge with municipal emergency relay (**${patientLocation.nearestPSAP || 'local 911 services'}**) transmitting live GPS coordinates and biometric vitals telemetry.\n\n` +
+          `3. **Stage 3 (EMS Bridge):** Automated 3-way conference bridge with municipal emergency relay (**${patientLocation.nearestPSAP || `local emergency services (${resolvePatientService({ countryCode: patientLocation.countryCode, address: patientLocation.address })?.service.primary ?? 'local emergency number'})`}**) transmitting live GPS coordinates and biometric vitals telemetry.\n\n` +
           `Total emergency voice calls logged to date: **${callLogs.length}** (All resolved safely).`,
         insights: [
           `Active Dispatch Profile: ${patientLocation.label}`,
