@@ -86,6 +86,27 @@ export const getCloudUserId = async (): Promise<string | null> => {
   return data.session?.user.id ?? null;
 };
 
+// Calls back with the cloud user id (or null) now and whenever it changes. Returns an unsubscribe function.
+export const onCloudUserChange = (callback: (userId: string | null) => void): (() => void) => {
+  if (!isBackendEnabled()) {
+    callback(null);
+    return () => undefined;
+  }
+  let unsubscribe: (() => void) | null = null;
+  let cancelled = false;
+  void getClient().then(async (db) => {
+    if (cancelled) return;
+    const { data } = await db.auth.getSession();
+    callback(data.session?.user.id ?? null);
+    const { data: sub } = db.auth.onAuthStateChange((_event, session) => callback(session?.user.id ?? null));
+    unsubscribe = () => sub.subscription.unsubscribe();
+  });
+  return () => {
+    cancelled = true;
+    unsubscribe?.();
+  };
+};
+
 export const signOutCloud = async () => {
   const db = await getClient();
   await db.auth.signOut();
@@ -101,11 +122,13 @@ export const updateMyProfile = async (fields: Partial<Pick<CloudProfile, 'full_n
 
 // --- Linking ----------------------------------------------------------------
 
-export const createInvite = async (seniorPhone?: string): Promise<string> => {
+// With a patient id, the person who accepts the code becomes that patient (and sees their data).
+export const createInvite = async (seniorPhone?: string, patientLocalId?: string): Promise<string> => {
   const db = await getClient();
-  const { data, error } = await db.rpc('create_invite', {
-    p_senior_phone: seniorPhone ? normalizePhone(seniorPhone) : null,
-  });
+  const phone = seniorPhone ? normalizePhone(seniorPhone) : null;
+  const { data, error } = patientLocalId
+    ? await db.rpc('create_patient_invite', { p_patient_local_id: patientLocalId, p_senior_phone: phone })
+    : await db.rpc('create_invite', { p_senior_phone: phone });
   fail(error);
   return data as string;
 };
@@ -200,6 +223,88 @@ export const subscribeToAlerts = (onAlert: (alert: CloudAlert) => void): (() => 
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts' }, (payload) =>
         onAlert(payload.new as CloudAlert),
       )
+      .subscribe();
+  });
+  return () => {
+    cancelled = true;
+    if (channel) void getClient().then((db) => db.removeChannel(channel as RealtimeChannel));
+  };
+};
+
+// --- Patient health data ------------------------------------------------------
+
+export interface CloudPatientRow {
+  id: string;
+  owner_id: string;
+  senior_id: string | null;
+  local_id: string;
+  full_name: string;
+  relationship: string;
+  age: number | null;
+  gender: string;
+  room_or_unit: string;
+  primary_condition: string;
+  avatar_bg: string;
+  location: Record<string, unknown> | null;
+  latest_vitals: Record<string, unknown> | null;
+  updated_at: string;
+  thresholds: { limits: unknown } | { limits: unknown }[] | null;
+  emergency_contacts: { data: unknown }[];
+  medications: { data: unknown }[];
+  devices: { data: unknown }[];
+  dose_logs: { data: unknown }[];
+}
+
+// Saves a whole patient in one transaction. Returns the patient's cloud id.
+export const savePatientToCloud = async (payload: Record<string, unknown>): Promise<string> => {
+  const db = await getClient();
+  const { data, error } = await db.rpc('save_patient', { p: payload });
+  fail(error);
+  return data as string;
+};
+
+// Every patient I own or that is shared with me, with their contacts, medications, devices and recent doses.
+export const loadCloudPatients = async (): Promise<CloudPatientRow[]> => {
+  const db = await getClient();
+  const { data, error } = await db
+    .from('patients')
+    .select('*, thresholds(limits), emergency_contacts(data), medications(data), devices(data), dose_logs(data)')
+    .order('created_at', { ascending: true })
+    .order('scheduled_date', { referencedTable: 'dose_logs', ascending: false })
+    .limit(200, { referencedTable: 'dose_logs' });
+  fail(error);
+  return (data ?? []) as CloudPatientRow[];
+};
+
+export const addCloudReading = async (
+  patientCloudId: string,
+  v: { heartRate?: number; bloodPressureSystolic?: number; bloodPressureDiastolic?: number; spo2?: number; respiratoryRate?: number; glucose?: number; temperature?: number; fallDetected?: boolean; timestamp?: string },
+) => {
+  const db = await getClient();
+  const { error } = await db.from('readings').insert({
+    patient_id: patientCloudId,
+    recorded_at: new Date().toISOString(),
+    heart_rate: v.heartRate ?? null,
+    bp_systolic: v.bloodPressureSystolic ?? null,
+    bp_diastolic: v.bloodPressureDiastolic ?? null,
+    spo2: v.spo2 ?? null,
+    respiratory_rate: v.respiratoryRate ?? null,
+    glucose: v.glucose ?? null,
+    temperature: v.temperature ?? null,
+    fall_detected: Boolean(v.fallDetected),
+  });
+  fail(error);
+};
+
+// Calls back whenever any patient I can see is saved (by me or by a linked phone).
+export const subscribeToPatientChanges = (onChange: () => void): (() => void) => {
+  let channel: RealtimeChannel | null = null;
+  let cancelled = false;
+  void getClient().then((db) => {
+    if (cancelled) return;
+    channel = db
+      .channel('kinote-patients')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, () => onChange())
       .subscribe();
   });
   return () => {

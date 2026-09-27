@@ -7,7 +7,11 @@ Without these steps the app still works on a single device, as before.
 ## 1. Create the Supabase project (about 10 minutes)
 
 1. Sign up at supabase.com and create a project. Pick the **Mumbai (ap-south-1)** region.
-2. Open **SQL Editor**, paste the contents of `supabase/migrations/20260927000000_family_links_and_alerts.sql`, and click **Run**.
+2. Open **SQL Editor** and run each file in `supabase/migrations/`, oldest first:
+   - `20260927000000_family_links_and_alerts.sql`: accounts, links, invites, alerts.
+   - `20260928000000_patient_data.sql`: patients, thresholds, contacts, medications, dose logs, devices, readings, subscriptions.
+
+   Both files are safe to run again.
 3. Go to **Project Settings → API**. Copy the **Project URL** and the **anon public key**.
 4. Add both keys to the app:
    - **Locally:** create a `.env` file with:
@@ -65,11 +69,17 @@ Without these steps the app still works on a single device, as before.
 | Parent presses SOS | An alert row is saved. Linked caregivers see it instantly under **Live alerts**. |
 | Webhook runs `escalate-alert` | Every linked caregiver with a phone number gets an SMS. Critical alerts also get a voice call. Each attempt is logged in `alert_events`. |
 | Caregiver taps **I'm on it** | The alert is marked acknowledged for everyone. |
+| Anyone edits a patient | About 1.5 seconds later the whole patient (profile, thresholds, contacts, medications, devices, dose logs) is saved in one transaction. Linked phones reload it straight away. |
+| Vitals come in | One reading a minute is added to `readings` for the patient on screen (only real readings, never zeros). |
+
+**Who sees a patient:** the caregiver who added them, the person who accepted that patient's invite code, and every caregiver linked to that person. If two phones edit at the same time, the last save wins.
 
 Access rules are enforced in the database with row level security. A person only ever sees themselves, the people they're linked with, and those people's alerts.
 
 ## Not included yet
 
+- **Deleting a patient** only removes them from that phone, not from the cloud.
+- **Sign-in:** the app's own email/phone sign-in is still separate from the cloud sign-in in **Link phones**.
 - **Retry and escalation:** there is no retry if a caregiver doesn't answer. That needs call-status webhooks from the telephony provider.
 - **Push notifications:** Firebase Cloud Messaging. This comes with the native app.
 - **Automatic ambulance dispatch:** needs a partner with an API. Until then, the app offers **Call 112** and **Nearest hospitals**, both one tap.
