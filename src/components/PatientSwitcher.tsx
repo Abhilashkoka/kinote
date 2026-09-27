@@ -8,7 +8,8 @@ import {
   MapPin, 
   ShieldCheck, 
   Check, 
-  AlertTriangle 
+  AlertTriangle,
+  Pencil
 } from 'lucide-react';
 import { PatientProfile, MembershipDetails } from '../types';
 
@@ -18,6 +19,7 @@ interface PatientSwitcherProps {
   onSelectPatient: (patientId: string) => void;
   membership: MembershipDetails;
   onAddNewPatient?: (newPatient: PatientProfile) => void;
+  onRenamePatient?: (patientId: string, newName: string) => void;
 }
 
 export default function PatientSwitcher({
@@ -26,6 +28,7 @@ export default function PatientSwitcher({
   onSelectPatient,
   membership,
   onAddNewPatient,
+  onRenamePatient,
 }: PatientSwitcherProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -35,6 +38,39 @@ export default function PatientSwitcher({
   const [newRelationship, setNewRelationship] = useState('Relative');
   const [newAge, setNewAge] = useState('75');
   const [newCondition, setNewCondition] = useState('Mild Arrhythmia & Fall Risk');
+
+  // Rename modal
+  const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+
+  const openRename = (patient: PatientProfile) => {
+    setRenameTargetId(patient.id);
+    setRenameValue(patient.name);
+    setRenameError(null);
+    setIsOpen(false);
+  };
+
+  const closeRename = () => {
+    setRenameTargetId(null);
+    setRenameValue('');
+    setRenameError(null);
+  };
+
+  const handleRenameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = renameValue.trim();
+    if (!name) {
+      setRenameError('Enter a name.');
+      return;
+    }
+    if (name.length > 60) {
+      setRenameError('Keep the name under 60 characters.');
+      return;
+    }
+    if (renameTargetId && onRenamePatient) onRenamePatient(renameTargetId, name);
+    closeRename();
+  };
 
   const activePatient = patients.find((p) => p.id === activePatientId) || patients[0];
   const isAtLimit = patients.length >= membership.maxSeniors;
@@ -171,11 +207,27 @@ export default function PatientSwitcher({
                     </div>
                   </div>
 
-                  {isSelected && (
-                    <div className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center shrink-0">
-                      <Check className="w-3 h-3" />
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {onRenamePatient && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openRename(p);
+                        }}
+                        className="w-6 h-6 rounded-lg text-slate-400 hover:text-teal-700 hover:bg-teal-100/70 flex items-center justify-center cursor-pointer"
+                        title={`Rename ${p.name}`}
+                        aria-label={`Rename ${p.name}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {isSelected && (
+                      <div className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -206,6 +258,59 @@ export default function PatientSwitcher({
           </div>
         </div>
       </>
+      )}
+
+      {/* Rename Monitored Person Modal */}
+      {renameTargetId && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-900">Rename</h3>
+              <button
+                onClick={closeRename}
+                className="text-slate-400 hover:text-slate-700 font-bold"
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleRenameSubmit} className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label htmlFor="rename-patient" className="font-semibold text-slate-700">Name</label>
+                <input
+                  id="rename-patient"
+                  type="text"
+                  autoFocus
+                  value={renameValue}
+                  onChange={(e) => {
+                    setRenameValue(e.target.value);
+                    setRenameError(null);
+                  }}
+                  placeholder="e.g. Mom or Lakshmi"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+                />
+                {renameError && <p className="text-[11px] text-rose-600">{renameError}</p>}
+              </div>
+
+              <div className="pt-1 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeRename}
+                  className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold"
+                >
+                  Save Name
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Add New Monitored Relative Modal */}
