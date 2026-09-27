@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
   Heart, 
   Activity, 
@@ -22,6 +22,9 @@ import {
 } from 'lucide-react';
 import { VitalsReading, MedicationItem, MedicationDoseLog, MedicationDoseStatus, WearableDevice } from '../types';
 import { speakText } from '../utils/speech';
+import { telLink } from '../utils/emergency';
+import EmergencyCountryPicker, { useCallerService } from './EmergencyCountryPicker';
+import { raiseCloudAlertIfSignedIn } from '../utils/backend';
 
 interface SeniorSafeViewProps {
   vitals: VitalsReading;
@@ -54,6 +57,11 @@ export default function SeniorSafeView({
   onRemoveAllDevices,
   onOpenPairModal,
 }: SeniorSafeViewProps) {
+  // Emergency contact shown to the senior comes from their saved contacts, never a hard-coded name
+  const contactLabel = primaryContactName.trim() || 'your emergency contact';
+  const hasContactPhone = primaryContactPhone.trim().length > 0;
+  // Emergency number for the country this phone is in (the senior's own phone in SafeMode)
+  const [emergency, setEmergencyCountry] = useCallerService();
   const [highContrast, setHighContrast] = useState(false);
   const [medsTaken, setMedsTaken] = useState(true);
   const [waterCups, setWaterCups] = useState(3);
@@ -80,27 +88,44 @@ export default function SeniorSafeView({
       return;
     }
     const text = isAbnormal
-      ? `Attention ${patientName}. Your current heart rate is ${vitals.heartRate} beats per minute and blood oxygen is ${vitals.spo2} percent. Our system has flagged an abnormal vital. Please rest comfortably. ${primaryContactName} has been notified.`
+      ? `Attention ${patientName}. Your current heart rate is ${vitals.heartRate} beats per minute and blood oxygen is ${vitals.spo2} percent. Our system has flagged an abnormal vital. Please rest comfortably. ${contactLabel} has been notified.`
       : `Hello ${patientName}. Everything is looking normal and steady. Your heart rate is ${vitals.heartRate} beats per minute, blood pressure is ${vitals.bloodPressureSystolic} over ${vitals.bloodPressureDiastolic}, and oxygen is ${vitals.spo2} percent. You are doing wonderful.`;
     speakText(text);
   };
 
+  // Timer lives in a ref so Cancel really stops it (before, a cancelled countdown still fired the SOS)
+  const sosTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopSosTimer = () => {
+    if (sosTimerRef.current) {
+      clearInterval(sosTimerRef.current);
+      sosTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => stopSosTimer, []);
+
   const startSosFlow = () => {
-    setSosCountdown(5);
+    if (sosTimerRef.current) return;
+    let remaining = 5;
+    setSosCountdown(remaining);
     speakText('Emergency SOS initiated. Alerting family in 5 seconds.');
-    const timer = setInterval(() => {
-      setSosCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(timer);
-          onTriggerSOS();
-          return null;
-        }
-        return prev - 1;
-      });
+    sosTimerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        setSosCountdown(remaining);
+        return;
+      }
+      stopSosTimer();
+      setSosCountdown(null);
+      // Alert linked caregivers' phones when cloud sync is on (no-op otherwise)
+      raiseCloudAlertIfSignedIn({ kind: 'sos', severity: 'critical', message: `${patientName} pressed SOS` });
+      onTriggerSOS();
     }, 1000);
   };
 
   const cancelSos = () => {
+    stopSosTimer();
     setSosCountdown(null);
     speakText('Emergency alert cancelled.');
   };
@@ -407,8 +432,8 @@ export default function SeniorSafeView({
               </h2>
               <p className="text-base mt-1 text-slate-700 max-w-xl">
                 {isAbnormal
-                  ? 'Your pulse or oxygen reading triggered a caution alert. Rest seated; your caregiver David has received an automatic update.'
-                  : 'All measurements from your watch and cuff match your healthy baseline. David Miller and Sarah are connected.'}
+                  ? `Your pulse or oxygen reading triggered a caution alert. Rest seated; ${contactLabel} has received an automatic update.`
+                  : `All measurements from your watch and cuff match your healthy baseline. ${contactLabel} is connected.`}
               </p>
             </div>
           </div>
@@ -504,7 +529,7 @@ export default function SeniorSafeView({
           <div className="text-center lg:text-left">
             <h3 className="text-2xl font-bold text-white">Need Immediate Help or Feeling Unwell?</h3>
             <p className="text-slate-300 text-base mt-1 max-w-xl">
-              Tap the Emergency SOS button below. It notifies your son David ({primaryContactPhone}) and initiates an instant voice response check.
+              Tap the Emergency SOS button below. It notifies {contactLabel}{hasContactPhone ? ` (${primaryContactPhone})` : ''} and initiates an instant voice response check.
             </p>
           </div>
 
@@ -530,13 +555,44 @@ export default function SeniorSafeView({
             )}
 
             <a
-              href={`tel:${primaryContactPhone}`}
-              className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-lg font-bold flex items-center justify-center gap-3 transition-colors"
+              href={telLink(emergency.service.primary)}
+              className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-white hover:bg-rose-50 text-rose-700 text-lg font-black flex items-center justify-center gap-3 transition-colors"
+              title={`Calls emergency services in ${emergency.service.name} from this phone`}
             >
-              <Phone className="w-6 h-6 text-emerald-400" />
-              <span>Call {primaryContactName}</span>
+              <Phone className="w-6 h-6 text-rose-600" />
+              <span>Call {emergency.service.primary}</span>
             </a>
+
+            {emergency.service.ambulance && (
+              <a
+                href={telLink(emergency.service.ambulance)}
+                className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-800 text-lg font-black flex items-center justify-center gap-3 transition-colors"
+                title={`Ambulance in ${emergency.service.name}`}
+              >
+                <Phone className="w-6 h-6 text-rose-600" />
+                <span>Ambulance {emergency.service.ambulance}</span>
+              </a>
+            )}
+
+            {hasContactPhone ? (
+              <a
+                href={`tel:${primaryContactPhone}`}
+                className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-lg font-bold flex items-center justify-center gap-3 transition-colors"
+              >
+                <Phone className="w-6 h-6 text-emerald-400" />
+                <span>Call {primaryContactName || 'Emergency Contact'}</span>
+              </a>
+            ) : (
+              <div className="w-full sm:w-auto px-6 py-5 rounded-2xl bg-slate-800/60 border border-dashed border-slate-600 text-slate-300 text-base font-semibold flex items-center justify-center gap-3">
+                <Phone className="w-6 h-6 text-slate-500" />
+                <span>No phone number for {contactLabel} yet</span>
+              </div>
+            )}
           </div>
+        </div>
+        <div className="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-center lg:justify-start gap-x-3 gap-y-1">
+          <EmergencyCountryPicker resolved={emergency} onChange={setEmergencyCountry} tone="dark" />
+          {emergency.service.note && <span className="text-[11px] text-slate-400">{emergency.service.note}</span>}
         </div>
       </div>
 

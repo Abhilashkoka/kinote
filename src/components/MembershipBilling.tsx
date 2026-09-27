@@ -17,13 +17,23 @@ import {
   FileText
 } from 'lucide-react';
 import { MembershipDetails, MembershipPlanType } from '../types';
+import { detectCardBrand, passesLuhn } from '../utils/newAccount';
+
+const BRAND_LABEL: Record<MembershipDetails['paymentMethod']['brand'], string> = {
+  visa: 'VISA',
+  mastercard: 'MASTERCARD',
+  amex: 'AMEX',
+};
 
 interface MembershipBillingProps {
   membership: MembershipDetails;
   onUpdatePlan: (newPlan: MembershipPlanType) => void;
   onSimulateGracePeriod: () => void;
   onResetStatus: () => void;
+  onUpdateCard?: (card: MembershipDetails['paymentMethod']) => void;
   patientCount: number;
+  patientNames?: string[];
+  cardholderName?: string;
 }
 
 export default function MembershipBilling({
@@ -31,11 +41,57 @@ export default function MembershipBilling({
   onUpdatePlan,
   onSimulateGracePeriod,
   onResetStatus,
+  onUpdateCard,
   patientCount,
+  patientNames = [],
+  cardholderName = '',
 }: MembershipBillingProps) {
   const [selectedPlanModal, setSelectedPlanModal] = useState<MembershipPlanType | null>(null);
   const [showCardUpdateModal, setShowCardUpdateModal] = useState(false);
-  const [cardLast4, setCardLast4] = useState(membership.paymentMethod.last4);
+  const cardLast4 = membership.paymentMethod.last4;
+  const cardBrandLabel = BRAND_LABEL[membership.paymentMethod.brand] || 'CARD';
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvc, setCardCvc] = useState('');
+  const [cardError, setCardError] = useState<string | null>(null);
+
+  const closeCardModal = () => {
+    setShowCardUpdateModal(false);
+    setCardNumber('');
+    setCardExpiry('');
+    setCardCvc('');
+    setCardError(null);
+  };
+
+  const handleSaveCard = () => {
+    const digits = cardNumber.replace(/\D/g, '');
+    const brand = detectCardBrand(digits);
+    if (!brand) {
+      setCardError('Enter a Visa, Mastercard or American Express card number.');
+      return;
+    }
+    const expectedLength = brand === 'amex' ? 15 : 16;
+    if (digits.length !== expectedLength || !passesLuhn(digits)) {
+      setCardError('That card number is not valid. Check the digits and try again.');
+      return;
+    }
+    const expiryMatch = cardExpiry.trim().match(/^(\d{2})\s*\/\s*(\d{2})$/);
+    const month = expiryMatch ? Number(expiryMatch[1]) : 0;
+    const year = expiryMatch ? 2000 + Number(expiryMatch[2]) : 0;
+    const now = new Date();
+    const expired = year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1);
+    if (!expiryMatch || month < 1 || month > 12 || expired) {
+      setCardError('Enter a future expiry date as MM/YY.');
+      return;
+    }
+    const cvcDigits = cardCvc.replace(/\D/g, '');
+    if (cvcDigits.length !== (brand === 'amex' ? 4 : 3)) {
+      setCardError(brand === 'amex' ? 'Enter the 4-digit code on the front of the card.' : 'Enter the 3-digit code on the back of the card.');
+      return;
+    }
+    onUpdateCard?.({ brand, last4: digits.slice(-4), expMonth: month, expYear: year });
+    closeCardModal();
+  };
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
 
   const handleDownloadInvoice = (invId: string) => {
@@ -65,6 +121,11 @@ export default function MembershipBilling({
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Active Subscription</span>
                   </>
+                ) : membership.status === 'trial' ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Free Trial</span>
+                  </>
                 ) : (
                   <>
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
@@ -81,7 +142,11 @@ export default function MembershipBilling({
               {membership.priceFormatted}
             </h2>
             <p className="text-xs text-slate-600 max-w-xl">
-              Next scheduled renewal is on <strong className="text-slate-900">{membership.renewalDate}</strong> ({membership.daysRemaining} days remaining). Automatic backup billing to Visa •••• {cardLast4}.
+              {membership.status === 'trial' ? (
+                <>Your free trial ends on <strong className="text-slate-900">{membership.renewalDate}</strong> ({membership.daysRemaining} days left). {cardLast4 ? <>Billing will use your card ending {cardLast4}.</> : 'No card on file yet.'}</>
+              ) : (
+                <>Next scheduled renewal is on <strong className="text-slate-900">{membership.renewalDate}</strong> ({membership.daysRemaining} days remaining). {cardLast4 ? <>Automatic backup billing to {cardBrandLabel} •••• {cardLast4}.</> : 'No card on file yet.'}</>
+              )}
             </p>
           </div>
 
@@ -149,7 +214,7 @@ export default function MembershipBilling({
               />
             </div>
             <p className="text-[11px] text-slate-500 pt-0.5">
-              Eleanor Miller (Mother) &amp; Robert Miller (Father)
+              {patientNames.length > 0 ? patientNames.join(' & ') : 'No one added yet'}
             </p>
           </div>
 
@@ -170,7 +235,7 @@ export default function MembershipBilling({
               />
             </div>
             <p className="text-[11px] text-slate-500 pt-0.5">
-              82 minutes remaining this cycle. Auto-renews next month.
+              {membership.features.aiVoiceMinutesTotal - membership.features.aiVoiceMinutesUsed} minutes remaining this cycle.
             </p>
           </div>
 
@@ -366,25 +431,31 @@ export default function MembershipBilling({
             </span>
           </div>
 
+          {cardLast4 ? (
           <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 text-white space-y-3 shadow-md">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">KINOTE Medical Pay</span>
-              <span className="text-sm font-mono font-bold">VISA</span>
+              <span className="text-sm font-mono font-bold">{cardBrandLabel}</span>
             </div>
             <div className="text-sm font-mono tracking-widest pt-2">
               •••• •••• •••• {cardLast4}
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span>Cardholder: David Miller</span>
-              <span>Expires: {membership.paymentMethod.expMonth}/{membership.paymentMethod.expYear}</span>
+              <span>Cardholder: {cardholderName || 'Account holder'}</span>
+              <span>Expires: {String(membership.paymentMethod.expMonth).padStart(2, '0')}/{String(membership.paymentMethod.expYear).slice(-2)}</span>
             </div>
           </div>
+          ) : (
+            <div className="p-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-500">
+              No card on file yet.
+            </div>
+          )}
 
           <button
             onClick={() => setShowCardUpdateModal(true)}
             className="w-full py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
           >
-            Update Card or Billing Address
+            {cardLast4 ? 'Update Card or Billing Address' : 'Add a Card'}
           </button>
         </div>
 
@@ -396,6 +467,9 @@ export default function MembershipBilling({
           </div>
 
           <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden text-xs">
+            {membership.invoices.length === 0 && (
+              <div className="p-4 text-slate-500 bg-white">No invoices yet. Your first invoice appears after the trial ends.</div>
+            )}
             {membership.invoices.map((inv) => (
               <div key={inv.id} className="p-3.5 flex items-center justify-between bg-white hover:bg-slate-50/70 transition-colors">
                 <div className="flex items-center gap-3">
@@ -435,49 +509,76 @@ export default function MembershipBilling({
       {showCardUpdateModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in">
-            <h3 className="text-sm font-bold text-slate-900">Update Payment Card</h3>
-            <p className="text-xs text-slate-500">Enter new credit or debit card details for family subscription renewals.</p>
+            <h3 className="text-sm font-bold text-slate-900">{cardLast4 ? 'Update Payment Card' : 'Add a Card'}</h3>
+            <p className="text-xs text-slate-500">
+              Only the card type, last 4 digits and expiry date are saved. The full number and security code are never stored. No payment is taken in this version.
+            </p>
 
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-700">Card Number</label>
+              <label htmlFor="card-number" className="text-xs font-semibold text-slate-700">Card Number</label>
               <input
+                id="card-number"
                 type="text"
-                placeholder="4242 •••• •••• ••••"
+                inputMode="numeric"
+                autoComplete="cc-number"
+                value={cardNumber}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 16);
+                  setCardNumber(digits.replace(/(\d{4})(?=\d)/g, '$1 '));
+                  setCardError(null);
+                }}
+                placeholder="1234 5678 9012 3456"
                 className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs font-semibold text-slate-700">Expiry</label>
+                <label htmlFor="card-expiry" className="text-xs font-semibold text-slate-700">Expiry</label>
                 <input
+                  id="card-expiry"
                   type="text"
+                  inputMode="numeric"
+                  autoComplete="cc-exp"
+                  value={cardExpiry}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+                    setCardExpiry(digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits);
+                    setCardError(null);
+                  }}
                   placeholder="MM/YY"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-700">CVC</label>
+                <label htmlFor="card-cvc" className="text-xs font-semibold text-slate-700">CVC</label>
                 <input
-                  type="text"
+                  id="card-cvc"
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="cc-csc"
+                  value={cardCvc}
+                  onChange={(e) => {
+                    setCardCvc(e.target.value.replace(/\D/g, '').slice(0, 4));
+                    setCardError(null);
+                  }}
                   placeholder="CVC"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono"
                 />
               </div>
             </div>
 
+            {cardError && <p className="text-[11px] text-rose-600">{cardError}</p>}
+
             <div className="pt-2 flex items-center gap-2">
               <button
-                onClick={() => {
-                  setCardLast4('8812');
-                  setShowCardUpdateModal(false);
-                }}
+                onClick={handleSaveCard}
                 className="flex-1 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs transition-colors cursor-pointer"
               >
-                Save New Card
+                Save Card
               </button>
               <button
-                onClick={() => setShowCardUpdateModal(false)}
+                onClick={closeCardModal}
                 className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs cursor-pointer"
               >
                 Cancel

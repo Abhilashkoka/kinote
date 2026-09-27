@@ -45,6 +45,7 @@ import {
   MedicationDoseStatus
 } from '../types';
 import VitalTrends from './VitalTrends';
+import { COUNTRY_OPTIONS, countryFromAddress, detectDeviceCountry, resolvePatientService, serviceFor } from '../utils/emergency';
 import MedicationManagement from './MedicationManagement';
 import MedicationAdherenceCharts from './MedicationAdherenceCharts';
 
@@ -57,6 +58,7 @@ interface CaregiverDashboardProps {
   patientLocation: PatientLocation;
   patientLocationsList: PatientLocation[];
   onSelectPatientLocation: (loc: PatientLocation) => void;
+  onAddPatientLocation?: (loc: PatientLocation) => void;
   patientName: string;
   onSimulateVitals: (scenario: 'normal' | 'tachycardia' | 'hypoxia' | 'hypertension' | 'fall') => void;
   onInitiateAIVoiceCall: (triggerReason: string) => void;
@@ -84,6 +86,7 @@ export default function CaregiverDashboard({
   patientLocation,
   patientLocationsList,
   onSelectPatientLocation,
+  onAddPatientLocation,
   patientName,
   onSimulateVitals,
   onInitiateAIVoiceCall,
@@ -102,6 +105,40 @@ export default function CaregiverDashboard({
   onRemoveAllDevices,
 }: CaregiverDashboardProps) {
   const [showAddContact, setShowAddContact] = useState(false);
+  const locationMissing = !patientLocation.address || !patientLocation.address.trim();
+  const [newLocLabel, setNewLocLabel] = useState('');
+  const [newLocAddress, setNewLocAddress] = useState('');
+  const [newLocPSAP, setNewLocPSAP] = useState('');
+  const [newLocMode, setNewLocMode] = useState<PatientLocation['dispatchPreference']>('caregiver_guided');
+  const [newLocError, setNewLocError] = useState<string | null>(null);
+  const [newLocCountry, setNewLocCountry] = useState<string>(() => detectDeviceCountry() || '');
+
+  // Emergency numbers where the monitored person is (from the saved country, the address, or their contact's number)
+  const patientEmergency = resolvePatientService({
+    countryCode: patientLocation.countryCode,
+    address: patientLocation.address,
+  });
+
+  const handleSaveNewLocation = () => {
+    if (!newLocAddress.trim()) {
+      setNewLocError('Enter the full street address so emergency services can find them.');
+      return;
+    }
+    onAddPatientLocation?.({
+      label: newLocLabel.trim() || 'Home',
+      address: newLocAddress.trim(),
+      coordinates: { lat: 0, lng: 0 },
+      nearestPSAP: newLocPSAP.trim(),
+      dispatchPreference: newLocMode,
+      countryCode: newLocCountry || countryFromAddress(newLocAddress) || undefined,
+    });
+    setNewLocLabel('');
+    setNewLocAddress('');
+    setNewLocPSAP('');
+    setNewLocMode('caregiver_guided');
+    setNewLocError(null);
+    setShowLocationModal(false);
+  };
   const [newContactName, setNewContactName] = useState('');
   const [newContactRelation, setNewContactRelation] = useState('');
   const [newContactPhone, setNewContactPhone] = useState('');
@@ -157,16 +194,37 @@ export default function CaregiverDashboard({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-slate-900">{patientName}'s Active Location:</span>
-              <span className="text-xs font-bold text-teal-800 bg-teal-50 px-2.5 py-0.5 rounded-md">
-                {patientLocation.label}
-              </span>
-              <span className="text-[11px] font-mono text-slate-500">
-                · {patientLocation.address}
-              </span>
+              {locationMissing ? (
+                <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md">
+                  No address added yet
+                </span>
+              ) : (
+                <>
+                  <span className="text-xs font-bold text-teal-800 bg-teal-50 px-2.5 py-0.5 rounded-md">
+                    {patientLocation.label}
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-500">
+                    · {patientLocation.address}
+                  </span>
+                </>
+              )}
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              EMS Route: <strong className="text-slate-800 uppercase">{patientLocation.dispatchPreference.replace(/_/g, ' ')}</strong> · PSAP: {patientLocation.nearestPSAP}
-            </p>
+            {locationMissing ? (
+              <p className="text-xs text-slate-500 mt-0.5">
+                Add {patientName}'s address so emergency help can be sent to the right place.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 mt-0.5">
+                EMS Route: <strong className="text-slate-800 uppercase">{patientLocation.dispatchPreference.replace(/_/g, ' ')}</strong>
+                {patientLocation.nearestPSAP ? <> · PSAP: {patientLocation.nearestPSAP}</> : null}
+                {patientEmergency ? (
+                  <>
+                    {' '}· Emergency in {patientEmergency.service.name}: <strong className="text-rose-700">{patientEmergency.service.primary}</strong>
+                    {patientEmergency.service.ambulance ? <> · Ambulance <strong className="text-rose-700">{patientEmergency.service.ambulance}</strong></> : null}
+                  </>
+                ) : null}
+              </p>
+            )}
           </div>
         </div>
 
@@ -175,7 +233,7 @@ export default function CaregiverDashboard({
             onClick={() => setShowLocationModal(true)}
             className="px-3.5 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-colors whitespace-nowrap"
           >
-            Switch Location &amp; Dispatch Mode
+            {locationMissing ? 'Add Address' : <>Switch Location &amp; Dispatch Mode</>}
           </button>
           <button
             onClick={onOpenAIAssistant}
@@ -840,7 +898,7 @@ export default function CaregiverDashboard({
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
             <div className="flex items-center justify-between text-slate-700">
               <span>Target Patient:</span>
-              <span className="font-semibold text-slate-900">{patientName} (+1 555-321-7788)</span>
+              <span className="font-semibold text-slate-900">{patientName}</span>
             </div>
             <div className="flex items-center justify-between text-slate-700">
               <span>Grace Period:</span>
@@ -848,7 +906,7 @@ export default function CaregiverDashboard({
             </div>
             <div className="flex items-center justify-between text-slate-700">
               <span>Dispatch Destination:</span>
-              <span className="font-semibold text-teal-800">{patientLocation.nearestPSAP}</span>
+              <span className="font-semibold text-teal-800">{patientLocation.nearestPSAP || 'Not set yet'}</span>
             </div>
           </div>
 
@@ -981,6 +1039,11 @@ export default function CaregiverDashboard({
               </p>
 
               <div className="space-y-2.5">
+                {patientLocationsList.length === 0 && (
+                  <p className="text-xs text-slate-500 p-3 rounded-xl bg-slate-50 border border-dashed border-slate-300">
+                    No saved locations yet. Add {patientName}'s home address below.
+                  </p>
+                )}
                 {patientLocationsList.map((loc) => {
                   const isSelected = loc.label === patientLocation.label;
                   return (
@@ -1001,7 +1064,8 @@ export default function CaregiverDashboard({
                           <p className="text-sm font-bold text-slate-900">{loc.label}</p>
                           <p className="text-xs text-slate-500 mt-0.5">{loc.address}</p>
                           <div className="mt-2 text-[11px] font-mono text-teal-800">
-                            Protocol: <strong className="uppercase">{loc.dispatchPreference.replace(/_/g, ' ')}</strong> · PSAP: {loc.nearestPSAP}
+                            Protocol: <strong className="uppercase">{loc.dispatchPreference.replace(/_/g, ' ')}</strong>
+                            {loc.nearestPSAP ? <> · PSAP: {loc.nearestPSAP}</> : null}
                           </div>
                         </div>
                         {isSelected && <Check className="w-5 h-5 text-teal-700 shrink-0" />}
@@ -1010,6 +1074,68 @@ export default function CaregiverDashboard({
                   );
                 })}
               </div>
+
+              {onAddPatientLocation && (
+                <div className="pt-3 mt-1 border-t border-slate-100 space-y-2">
+                  <p className="text-xs font-bold text-slate-900">Add a location</p>
+                  <input
+                    id="new-location-label"
+                    type="text"
+                    value={newLocLabel}
+                    onChange={(e) => setNewLocLabel(e.target.value)}
+                    placeholder="Name, e.g. Home"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-teal-600"
+                  />
+                  <input
+                    id="new-location-address"
+                    type="text"
+                    value={newLocAddress}
+                    onChange={(e) => { setNewLocAddress(e.target.value); setNewLocError(null); }}
+                    placeholder="Full street address *"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-teal-600"
+                  />
+                  <input
+                    id="new-location-psap"
+                    type="text"
+                    value={newLocPSAP}
+                    onChange={(e) => setNewLocPSAP(e.target.value)}
+                    placeholder="Nearest emergency center (optional)"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-teal-600"
+                  />
+                  <select
+                    id="new-location-country"
+                    value={newLocCountry}
+                    onChange={(e) => setNewLocCountry(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs bg-white focus:outline-hidden focus:border-teal-600"
+                    aria-label="Country"
+                  >
+                    <option value="">Country (sets the emergency number)</option>
+                    {COUNTRY_OPTIONS.map((c) => (
+                      <option key={c.country} value={c.country}>
+                        {c.name} · {c.primary}{c.ambulance ? ` / ${c.ambulance}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    id="new-location-mode"
+                    value={newLocMode}
+                    onChange={(e) => setNewLocMode(e.target.value as PatientLocation['dispatchPreference'])}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs bg-white focus:outline-hidden focus:border-teal-600"
+                  >
+                    <option value="caregiver_guided">Call me (caregiver) first</option>
+                    <option value="certified_monitoring">Certified monitoring center</option>
+                    <option value="direct_psap">Call {serviceFor(newLocCountry || countryFromAddress(newLocAddress)).primary} directly</option>
+                  </select>
+                  {newLocError && <p className="text-[11px] text-rose-600">{newLocError}</p>}
+                  <button
+                    type="button"
+                    onClick={handleSaveNewLocation}
+                    className="w-full py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold"
+                  >
+                    Save Location
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">

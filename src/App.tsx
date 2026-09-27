@@ -84,6 +84,8 @@ import { MobileTesterModal } from './components/MobileTesterModal';
 import { DevicePairingModal } from './components/DevicePairingModal';
 import { CleanLiveTestingModal } from './components/CleanLiveTestingModal';
 import { playEmergencyChime, speakText } from './utils/speech';
+import { EMPTY_LOCATION, sanitizeCustomPatient, PatientWithLocations } from './utils/location';
+import { createNewAccountMembership, createNewAccountAuditLogs, membershipStorageKey, readLovedOneName } from './utils/newAccount';
 
 // Check if a user is a pre-canned demo account
 export const isDemoUser = (user: AuthUser | null): boolean => {
@@ -98,10 +100,11 @@ export const isDemoUser = (user: AuthUser | null): boolean => {
 };
 
 // Generate an isolated, clean patient profile for a newly signed-up user
-export const createDefaultCustomPatient = (user: AuthUser): PatientProfile => {
+export const createDefaultCustomPatient = (user: AuthUser): PatientWithLocations => {
+  const lovedOneName = readLovedOneName(user.id);
   const customSeniorName = user.role === 'senior_patient' 
     ? user.name 
-    : `${user.name.split(' ')[0]}'s Family Member`;
+    : lovedOneName || `${user.name.split(' ')[0]}'s Family Member`;
 
   return {
     id: `patient_${user.id}`,
@@ -112,7 +115,8 @@ export const createDefaultCustomPatient = (user: AuthUser): PatientProfile => {
     roomOrUnit: 'Primary Residence',
     primaryCondition: 'Continuous Biometric Monitoring',
     avatarBg: 'from-teal-600 to-emerald-700',
-    location: PATIENT_LOCATIONS[0],
+    location: EMPTY_LOCATION,
+    savedLocations: [],
     devices: [], // Zero devices initially! Asks the user to pair their wearable
     vitals: {
       timestamp: 'Awaiting device sync',
@@ -133,7 +137,7 @@ export const createDefaultCustomPatient = (user: AuthUser): PatientProfile => {
         id: `contact_${Date.now()}`,
         name: user.name,
         relation: 'Primary Caregiver',
-        phone: user.phone || '+1 (555) 000-0000',
+        phone: user.phone || '',
         email: user.email,
         priorityOrder: 1,
         notifyOnWarning: true,
@@ -168,8 +172,10 @@ export default function App() {
   // Membership & Billing Subscription State
   const [membership, setMembership] = useState<MembershipDetails>(() => {
     try {
-      const saved = localStorage.getItem('kinote_membership');
-      return saved ? JSON.parse(saved) : INITIAL_MEMBERSHIP;
+      const isCustom = !!currentUser && !isDemoUser(currentUser);
+      const saved = localStorage.getItem(membershipStorageKey(currentUser, !isCustom));
+      if (saved) return JSON.parse(saved);
+      return isCustom ? createNewAccountMembership() : INITIAL_MEMBERSHIP;
     } catch {
       return INITIAL_MEMBERSHIP;
     }
@@ -181,7 +187,7 @@ export default function App() {
       if (currentUser && !isDemoUser(currentUser)) {
         const savedCustom = localStorage.getItem('kinote_patient_' + currentUser.id);
         if (savedCustom) {
-          return [JSON.parse(savedCustom)];
+          return [sanitizeCustomPatient(JSON.parse(savedCustom))];
         }
         const created = createDefaultCustomPatient(currentUser);
         localStorage.setItem('kinote_patient_' + currentUser.id, JSON.stringify(created));
@@ -213,11 +219,17 @@ export default function App() {
     if (currentUser && !isDemoUser(currentUser)) return [];
     return INITIAL_CALL_LOGS;
   });
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(INITIAL_AUDIT_LOGS);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() =>
+    currentUser && !isDemoUser(currentUser) ? createNewAccountAuditLogs(currentUser) : INITIAL_AUDIT_LOGS
+  );
   
   // Location Profiles (Q6: adult child decides by location)
-  const [patientLocationsList, setPatientLocationsList] = useState<PatientLocation[]>(PATIENT_LOCATIONS);
-  const [currentLocation, setCurrentLocation] = useState<PatientLocation>(activePatient.location || PATIENT_LOCATIONS[0]);
+  const [patientLocationsList, setPatientLocationsList] = useState<PatientLocation[]>(() =>
+    currentUser && !isDemoUser(currentUser) ? ((activePatient as PatientWithLocations).savedLocations || []) : PATIENT_LOCATIONS
+  );
+  const [currentLocation, setCurrentLocation] = useState<PatientLocation>(
+    activePatient.location || (currentUser && !isDemoUser(currentUser) ? EMPTY_LOCATION : PATIENT_LOCATIONS[0])
+  );
 
   // Modals & Voice Calling
   const [isVoiceCallModalOpen, setIsVoiceCallModalOpen] = useState(false);
@@ -297,6 +309,60 @@ export default function App() {
     handleSelectPatient(newPatient.id);
     showToast(`Added ${newPatient.name} to family monitoring circle.`);
   };
+
+  // Rename a monitored person and save it (own profile for real accounts, demo list for demo users)
+  const handleRenamePatient = (patientId: string, newName: string) => {
+    const name = newName.trim();
+    if (!name) return;
+    const updated = patients.map((p) => (p.id === patientId ? { ...p, name } : p));
+    setPatients(updated);
+    try {
+      if (currentUser && !isDemoUser(currentUser)) {
+        const target = updated.find((p) => p.id === patientId);
+        if (target && target.id === `patient_${currentUser.id}`) {
+          localStorage.setItem('kinote_patient_' + currentUser.id, JSON.stringify(target));
+        }
+      } else {
+        localStorage.setItem('kinote_patients_list', JSON.stringify(updated));
+      }
+    } catch {}
+
+    const auditEntry: AuditLogEntry = {
+      id: `aud_${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
+      actor: currentUser?.email || 'caregiver',
+      actorRole: currentUser?.role || 'family_caregiver',
+      action: 'PATIENT_RENAMED',
+      resource: `patient.${patientId}.name`,
+      details: `Monitored person renamed to ${name}.`,
+      severity: 'INFO',
+      ipAddress: 'this device',
+      sha256Hash: Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+    };
+    setAuditLogs((prev) => [auditEntry, ...prev]);
+    showToast(`Renamed to ${name}.`);
+  };
+
+  // Save emergency contacts on the monitored person so they survive a reload
+  const handleUpdateContacts = (contacts: EmergencyContact[]) => {
+    setEmergencyContacts(contacts);
+    const updated = patients.map((p) => (p.id === activePatient.id ? { ...p, emergencyContacts: contacts } : p));
+    setPatients(updated);
+    try {
+      if (currentUser && !isDemoUser(currentUser)) {
+        const target = updated.find((p) => p.id === `patient_${currentUser.id}`);
+        if (target) localStorage.setItem('kinote_patient_' + currentUser.id, JSON.stringify(target));
+      } else {
+        localStorage.setItem('kinote_patients_list', JSON.stringify(updated));
+      }
+    } catch {}
+  };
+
+  // Phone number of the person being called: a senior's own account number, or the demo profile's number
+  const monitoredPersonPhone =
+    currentUser && !isDemoUser(currentUser)
+      ? (currentUser.role === 'senior_patient' ? currentUser.phone || '' : '')
+      : DEMO_USERS.find((u) => u.name === patientName)?.phone || '';
 
   // Device Pairing Handler
   const handleDevicePaired = (newDevice: WearableDevice, initialVitals: Partial<VitalsReading>) => {
@@ -437,7 +503,7 @@ export default function App() {
 
     // 3. Create or convert active patient into a clean live testing profile
     const livePatientName = currentUser ? currentUser.name : activePatient.name;
-    const cleanPatient: PatientProfile = {
+    const cleanPatient: PatientWithLocations = {
       id: currentUser ? `patient_${currentUser.id}` : `patient_live_${Date.now()}`,
       name: livePatientName,
       relationship: currentUser?.role === 'senior_patient' ? 'Self' : 'Monitored Senior',
@@ -446,7 +512,8 @@ export default function App() {
       roomOrUnit: 'Primary Residence',
       primaryCondition: 'Live Continuous Biometric Stream',
       avatarBg: 'from-teal-700 to-slate-900',
-      location: PATIENT_LOCATIONS[0],
+      location: EMPTY_LOCATION,
+      savedLocations: [],
       devices: [], // Zero devices initially
       vitals: blankVitals,
       thresholds: INITIAL_THRESHOLDS,
@@ -457,8 +524,8 @@ export default function App() {
           id: `contact_${Date.now()}`,
           name: currentUser?.name || 'Primary Caregiver',
           relation: 'Emergency Family Contact',
-          phone: currentUser?.phone || '+1 (555) 012-3456',
-          email: currentUser?.email || 'caregiver@example.com',
+          phone: currentUser?.phone || '',
+          email: currentUser?.email || '',
           priorityOrder: 1,
           notifyOnWarning: true,
           notifyOnCritical: true,
@@ -534,7 +601,7 @@ export default function App() {
       const storedPatientStr = localStorage.getItem('kinote_patient_' + user.id);
       let targetPatient: PatientProfile;
       if (storedPatientStr) {
-        targetPatient = JSON.parse(storedPatientStr);
+        targetPatient = sanitizeCustomPatient(JSON.parse(storedPatientStr));
       } else {
         targetPatient = createDefaultCustomPatient(user);
         try {
@@ -551,6 +618,15 @@ export default function App() {
       setMedications(targetPatient.medications || []);
       setDoseLogs(targetPatient.doseLogs || []);
       setCallLogs([]);
+      setCurrentLocation(targetPatient.location || EMPTY_LOCATION);
+      setPatientLocationsList((targetPatient as PatientWithLocations).savedLocations || []);
+      setAuditLogs(createNewAccountAuditLogs(user));
+      try {
+        const savedMembership = localStorage.getItem(membershipStorageKey(user, false));
+        setMembership(savedMembership ? JSON.parse(savedMembership) : createNewAccountMembership());
+      } catch {
+        setMembership(createNewAccountMembership());
+      }
 
       if (user.role === 'senior_patient') {
         setActiveTab('senior');
@@ -565,6 +641,14 @@ export default function App() {
     } else {
       // Demo User (David Miller, Eleanor, Robert, or Dr. Thorne)
       setPatients(INITIAL_PATIENTS);
+      setPatientLocationsList(PATIENT_LOCATIONS);
+      setAuditLogs(INITIAL_AUDIT_LOGS);
+      try {
+        const savedMembership = localStorage.getItem(membershipStorageKey(user, true));
+        setMembership(savedMembership ? JSON.parse(savedMembership) : INITIAL_MEMBERSHIP);
+      } catch {
+        setMembership(INITIAL_MEMBERSHIP);
+      }
       if (user.id === 'user_eleanor_miller' || user.name.toLowerCase().includes('eleanor')) {
         handleSelectPatient('patient-eleanor');
         setActiveTab('senior');
@@ -612,7 +696,7 @@ export default function App() {
         status: 'active',
       };
       try {
-        localStorage.setItem('kinote_membership', JSON.stringify(updated));
+        localStorage.setItem(membershipStorageKey(currentUser, isDemoUser(currentUser)), JSON.stringify(updated));
       } catch {}
       return updated;
     });
@@ -623,18 +707,30 @@ export default function App() {
     setMembership((prev) => {
       const updated: MembershipDetails = { ...prev, status: 'grace_period' };
       try {
-        localStorage.setItem('kinote_membership', JSON.stringify(updated));
+        localStorage.setItem(membershipStorageKey(currentUser, isDemoUser(currentUser)), JSON.stringify(updated));
       } catch {}
       return updated;
     });
     showToast('Simulated Billing Alert: 7-day medical grace period active. Telemetry remains live.');
   };
 
+  // Save card details for billing: only brand, last 4 digits and expiry are kept (never the full number or CVC)
+  const handleUpdateCard = (card: MembershipDetails['paymentMethod']) => {
+    setMembership((prev) => {
+      const updated: MembershipDetails = { ...prev, paymentMethod: card };
+      try {
+        localStorage.setItem(membershipStorageKey(currentUser, isDemoUser(currentUser)), JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    showToast(`Card ending ${card.last4} saved.`);
+  };
+
   const handleResetMembershipStatus = () => {
     setMembership((prev) => {
       const updated: MembershipDetails = { ...prev, status: 'active' };
       try {
-        localStorage.setItem('kinote_membership', JSON.stringify(updated));
+        localStorage.setItem(membershipStorageKey(currentUser, isDemoUser(currentUser)), JSON.stringify(updated));
       } catch {}
       return updated;
     });
@@ -643,7 +739,7 @@ export default function App() {
 
   // One-tap action: Notify Senior via Kinote AI Voice system
   const handleNotifySeniorFromAlert = (notif: MissedDoseNotification) => {
-    const voiceReason = `Missed Medication Alert: Eleanor missed scheduled dose of ${notif.medicationName} (${notif.dosage}) scheduled for ${notif.scheduledTime}. Calling senior to verify safety and prompt medication adherence.`;
+    const voiceReason = `Missed Medication Alert: ${notif.patientName} missed scheduled dose of ${notif.medicationName} (${notif.dosage}) scheduled for ${notif.scheduledTime}. Calling senior to verify safety and prompt medication adherence.`;
     setActiveVoiceCallReason(voiceReason);
     setIsVoiceCallModalOpen(true);
     setActiveMissedDoseAlert(null); // Close floating popup once call initiated
@@ -653,10 +749,10 @@ export default function App() {
     const auditEntry: AuditLogEntry = {
       id: `aud_${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
-      actor: 'caregiver.david_miller',
+      actor: currentUser?.email || 'caregiver',
       actorRole: 'family_caregiver',
       action: 'AI_VOICE_MEDICATION_REMINDER_TRIGGERED',
-      resource: `patient.eleanor_miller.call.${notif.medicationId}`,
+      resource: `patient.${activePatient.id}.call.${notif.medicationId}`,
       details: `One-tap 'Notify Senior' action triggered from push notification for ${notif.medicationName}. AI Voice call bridged.`,
       severity: 'INFO',
       ipAddress: '10.0.8.21',
@@ -698,8 +794,8 @@ export default function App() {
         actor: 'kinote.dispenser.telemetry',
         actorRole: 'system_admin',
         action: 'MISSED_MEDICATION_PUSH_DISPATCH',
-        resource: `patient.eleanor_miller.medication.${medicationId}`,
-        details: `Missed dose logged for ${medName} (${med?.dosage}). Push notification dispatched to caregiver David Miller. One-tap AI voice check-in enabled.`,
+        resource: `patient.${activePatient.id}.medication.${medicationId}`,
+        details: `Missed dose logged for ${medName} (${med?.dosage}). Push notification dispatched to ${currentUser?.name || 'the caregiver'}. One-tap AI voice check-in enabled.`,
         severity: 'WARNING',
         ipAddress: '10.0.8.21',
         sha256Hash: Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
@@ -879,7 +975,7 @@ export default function App() {
         actor: 'kinote.telemetry.engine',
         actorRole: 'system_admin',
         action: 'CRITICAL_VITALS_BREACH',
-        resource: 'patient.eleanor_miller.biometrics',
+        resource: `patient.${activePatient.id}.biometrics`,
         details: `${reason} · Location: ${currentLocation.label}`,
         severity: 'CRITICAL',
         ipAddress: '10.0.8.21',
@@ -926,7 +1022,7 @@ export default function App() {
     const newAudit: AuditLogEntry = {
       id: `aud_${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
-      actor: currentUser?.email || 'david.miller@example.com',
+      actor: currentUser?.email || 'caregiver',
       actorRole: currentUser?.role || 'family_caregiver',
       action: 'THRESHOLDS_RECONFIGURED',
       resource: `patient.${activePatientId}.thresholds`,
@@ -968,14 +1064,34 @@ export default function App() {
     showToast('All 5 wearable monitors synchronized.');
   };
 
+  // Save the active location (and the list of saved locations) on the patient for real accounts
+  const persistPatientLocation = (loc: PatientLocation, list: PatientLocation[]) => {
+    const updatedPatient: PatientWithLocations = { ...activePatient, location: loc, savedLocations: list };
+    setPatients((prev) => prev.map((p) => (p.id === activePatient.id ? updatedPatient : p)));
+    if (currentUser && !isDemoUser(currentUser)) {
+      try {
+        localStorage.setItem('kinote_patient_' + currentUser.id, JSON.stringify(updatedPatient));
+      } catch {}
+    }
+  };
+
+  const handleAddLocation = (loc: PatientLocation) => {
+    const list = [...patientLocationsList.filter((l) => l.label !== loc.label), loc];
+    setPatientLocationsList(list);
+    setCurrentLocation(loc);
+    persistPatientLocation(loc, list);
+    showToast(`Location added: ${loc.label}`);
+  };
+
   const handleSelectLocation = (loc: PatientLocation) => {
     setCurrentLocation(loc);
+    persistPatientLocation(loc, patientLocationsList);
     showToast(`Dispatch location set to: ${loc.label} (${loc.dispatchPreference.replace(/_/g, ' ').toUpperCase()})`);
     
     const newAudit: AuditLogEntry = {
       id: `aud_${Date.now()}`,
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
-      actor: 'david.miller@example.com',
+      actor: currentUser?.email || 'caregiver',
       actorRole: 'family_caregiver',
       action: 'LOCATION_ROUTER_UPDATED',
       resource: 'patient.location',
@@ -997,8 +1113,8 @@ export default function App() {
             patientName={patientName}
             onTriggerSOS={() => handleLaunchAIVoiceCall('Senior SafeMode Emergency SOS Triggered')}
             onStartAIVoiceCheckin={() => handleLaunchAIVoiceCall('Senior Manual Voice Wellness Check-in')}
-            primaryContactName={emergencyContacts[0]?.name || 'David Miller (Son)'}
-            primaryContactPhone={emergencyContacts[0]?.phone || '+1 (555) 234-8901'}
+            primaryContactName={emergencyContacts[0]?.name || ''}
+            primaryContactPhone={emergencyContacts[0]?.phone || ''}
             medications={medications}
             doseLogs={doseLogs}
             onLogDose={handleLogDose}
@@ -1019,10 +1135,11 @@ export default function App() {
             patientLocation={currentLocation}
             patientLocationsList={patientLocationsList}
             onSelectPatientLocation={handleSelectLocation}
+            onAddPatientLocation={handleAddLocation}
             patientName={patientName}
             onSimulateVitals={handleSimulateVitals}
             onInitiateAIVoiceCall={handleLaunchAIVoiceCall}
-            onUpdateContacts={(c) => setEmergencyContacts(c)}
+            onUpdateContacts={handleUpdateContacts}
             onOpenAIAssistant={() => setActiveTab('ai_assistant')}
             medications={medications}
             doseLogs={doseLogs}
@@ -1097,7 +1214,10 @@ export default function App() {
             onUpdatePlan={handleUpdatePlan}
             onSimulateGracePeriod={handleSimulateGracePeriod}
             onResetStatus={handleResetMembershipStatus}
+            onUpdateCard={handleUpdateCard}
             patientCount={patients.length}
+            patientNames={patients.map((p) => p.name)}
+            cardholderName={currentUser?.name || ''}
           />
         );
       default:
@@ -1147,6 +1267,7 @@ export default function App() {
                 onSelectPatient={handleSelectPatient}
                 membership={membership}
                 onAddNewPatient={handleAddNewPatient}
+                onRenamePatient={handleRenamePatient}
               />
             </div>
           </div>
@@ -1524,6 +1645,7 @@ export default function App() {
               onSelectPatient={handleSelectPatient}
               membership={membership}
               onAddNewPatient={handleAddNewPatient}
+              onRenamePatient={handleRenamePatient}
             />
           </div>
           <div className="text-[10px] font-mono text-teal-800 font-semibold shrink-0 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/60">
@@ -1829,6 +1951,9 @@ export default function App() {
         currentVitalsSummary={`HR: ${vitals.heartRate} BPM, BP: ${vitals.bloodPressureSystolic}/${vitals.bloodPressureDiastolic}, SpO2: ${vitals.spo2}%`}
         patientLocation={currentLocation}
         onCallResolved={handleCallResolved}
+        caregiverName={emergencyContacts[0]?.name || ''}
+        caregiverPhone={emergencyContacts[0]?.phone || ''}
+        patientPhone={monitoredPersonPhone}
       />
 
       {/* Privacy Policy & Health Disclaimers Modal (Google Play Compliance) */}

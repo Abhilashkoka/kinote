@@ -15,6 +15,9 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { speakText, playEmergencyChime } from '../utils/speech';
+import { nearestHospitalsUrl, resolvePatientService, telLink } from '../utils/emergency';
+import EmergencyCountryPicker, { useCallerService } from './EmergencyCountryPicker';
+import { raiseCloudAlertIfSignedIn } from '../utils/backend';
 import { AIVoiceCallLog, PatientLocation } from '../types';
 
 interface AIVoiceCallModalProps {
@@ -25,6 +28,9 @@ interface AIVoiceCallModalProps {
   currentVitalsSummary: string;
   patientLocation: PatientLocation;
   onCallResolved: (log: AIVoiceCallLog) => void;
+  caregiverName?: string;
+  caregiverPhone?: string;
+  patientPhone?: string;
 }
 
 export default function AIVoiceCallModal({
@@ -35,7 +41,26 @@ export default function AIVoiceCallModal({
   currentVitalsSummary,
   patientLocation,
   onCallResolved,
+  caregiverName = '',
+  caregiverPhone = '',
+  patientPhone = '',
 }: AIVoiceCallModalProps) {
+  // Names and numbers come from the monitored person's emergency contacts, never hard-coded
+  const caregiverLabel = caregiverName.trim() || 'your caregiver';
+  const caregiverFirstName = caregiverName.trim().split(' ')[0] || 'Caregiver';
+
+  // Which emergency numbers apply: this phone's country (what the Call button can reach) and the
+  // monitored person's country (what someone next to them must dial). They differ when family is abroad.
+  const [callerEmergency, setCallerCountry] = useCallerService();
+  const patientEmergency = resolvePatientService({
+    countryCode: patientLocation.countryCode,
+    address: patientLocation.address,
+    phones: [patientPhone],
+  });
+  const dispatchEmergency = patientEmergency ?? callerEmergency;
+  const localEmsLabel = patientLocation.nearestPSAP || `local emergency services (${dispatchEmergency.service.primary})`;
+  const patientIsElsewhere =
+    !!patientEmergency && !!callerEmergency.service.country && patientEmergency.service.country !== callerEmergency.service.country;
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
@@ -97,7 +122,7 @@ export default function AIVoiceCallModal({
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       
       const greeting = isMedicationAlert
-        ? `Hello ${patientName}. This is KINOTE AI Health Assistant calling on behalf of your son David. We noticed your scheduled medication has not been marked as taken yet. Are you doing alright, and can you take your medication now with water?`
+        ? `Hello ${patientName}. This is KINOTE AI Health Assistant calling on behalf of ${caregiverLabel}. We noticed your scheduled medication has not been marked as taken yet. Are you doing alright, and can you take your medication now with water?`
         : `Hello ${patientName}. This is KINOTE Emergency Voice Dispatch. We detected: ${triggerReason}. Are you safe and conscious? Please speak or press a button to tell me how you are feeling.`;
 
       setTranscript([
@@ -135,30 +160,30 @@ export default function AIVoiceCallModal({
 
     if (responseType === 'taking_now') {
       patientText = "Oh dear, I was distracted and forgot! I have my water glass and I am taking the pill right now.";
-      aiResponse = `Wonderful, ${patientName}! I have recorded your dose as confirmed taken now, and I am sending a confirmation to David Miller so he knows you are doing well. Please rest comfortably.`;
+      aiResponse = `Wonderful, ${patientName}! I have recorded your dose as confirmed taken now, and I am sending a confirmation to ${caregiverLabel} so they know you are doing well. Please rest comfortably.`;
       setPatientStatus('ok');
     } else if (responseType === 'nauseous') {
       patientText = "I was feeling a little queasy and nauseous earlier, so I decided to delay the dose.";
-      aiResponse = `Thank you for letting me know, ${patientName}. I have documented this clinical context for Dr. Thorne and sent a note to David Miller to follow up with you gently.`;
+      aiResponse = `Thank you for letting me know, ${patientName}. I have documented this clinical context for your care team and sent a note to ${caregiverLabel} to follow up with you gently.`;
       setPatientStatus('ok');
     } else if (responseType === 'ok') {
       patientText = "I am okay, it was just sudden movement or a false alarm. I'm feeling fine.";
-      aiResponse = `Understood, ${patientName}. I have marked this as safe. I am notifying your primary caregiver David Miller that you are conscious and doing well. Stay hydrated.`;
+      aiResponse = `Understood, ${patientName}. I have marked this as safe. I am notifying ${caregiverLabel} that you are conscious and doing well. Stay hydrated.`;
       setPatientStatus('ok');
     } else if (responseType === 'dizzy') {
       patientText = "I am feeling very dizzy and lightheaded. My chest feels tight.";
-      aiResponse = `Please sit or lie down immediately in a safe position. Escalating to Stage 2: Notifying your son David Miller and patching him into this call.`;
+      aiResponse = `Please sit or lie down immediately in a safe position. Escalating to Stage 2: Notifying ${caregiverLabel} and patching them into this call.`;
       setPatientStatus('distressed');
       // Escalate to Stage 2 (Option C)
       setTimeout(() => escalateToCaregiver(), 2000);
     } else if (responseType === 'fall') {
       patientText = "I had a fall on the floor and I am unable to get back up. Please send help!";
-      aiResponse = `Do not attempt to strain yourself. Escalating immediately to Stage 2 and alerting David Miller, while preparing EMS relay for ${patientLocation.label}.`;
+      aiResponse = `Do not attempt to strain yourself. Escalating immediately to Stage 2 and alerting ${caregiverLabel}, while preparing EMS relay for ${patientLocation.label}.`;
       setPatientStatus('distressed');
       setTimeout(() => escalateToCaregiver(), 2000);
     } else {
       patientText = "I have acute chest pain and shortness of breath.";
-      aiResponse = `Emergency Protocol Priority 1 activated. Bridging to Stage 3: Immediate 3-Way Conference with ${patientLocation.nearestPSAP} and David Miller.`;
+      aiResponse = `Emergency Protocol Priority 1 activated. Bridging to Stage 3: Immediate 3-Way Conference with ${localEmsLabel} and ${caregiverLabel}.`;
       setPatientStatus('distressed');
       setTimeout(() => escalateToConference(), 2000);
     }
@@ -179,9 +204,15 @@ export default function AIVoiceCallModal({
   // Stage 2 (Option C): Escalate to Caregiver
   const escalateToCaregiver = () => {
     setTriageStage('stage2_caregiver');
+    raiseCloudAlertIfSignedIn({
+      kind: 'escalation',
+      severity: 'critical',
+      message: `${patientName} reported distress during a KINOTE check-in`,
+      location: patientLocation.address ? { label: patientLocation.label, address: patientLocation.address } : null,
+    });
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const msg = `[Stage 2 / Option C Activated] Direct Outbound Priority Bridge to David Miller (+1 555-234-8901). Senior expressed distress.`;
-    const aiSpeech = `David, KINOTE has bridged you to Eleanor. Her pulse is elevated and she reported distress. Location: ${patientLocation.address}.`;
+    const msg = `[Stage 2 / Option C Activated] Direct Outbound Priority Bridge to ${caregiverName.trim() || 'the primary caregiver'} (${caregiverPhone.trim() || 'no phone number on file'}). Senior expressed distress.`;
+    const aiSpeech = `${caregiverFirstName}, KINOTE has bridged you to ${patientName}. Their pulse is elevated and they reported distress. Location: ${patientLocation.address || 'the address on file (none added yet)'}.`;
 
     setTranscript((prev) => [
       ...prev,
@@ -197,15 +228,15 @@ export default function AIVoiceCallModal({
     setTriageStage('stage3_conference');
     setCallStatus('dispatched');
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const dispatchMsg = `[Stage 3 / Option B Activated] 3-Way Conference Bridge Established: Senior + Caregiver + ${patientLocation.nearestPSAP} (${patientLocation.dispatchPreference.toUpperCase()}). Paramedic unit dispatched to ${patientLocation.address}.`;
+    const dispatchMsg = `[Stage 3 / Option B Activated] 3-Way Conference Bridge Established: Senior + Caregiver + ${localEmsLabel} (${patientLocation.dispatchPreference.toUpperCase()}). Paramedic unit dispatched to ${patientLocation.address || 'the address on file (none added yet)'}.`;
 
     setTranscript((prev) => [
       ...prev,
       { speaker: 'system', text: dispatchMsg, time: timeNow },
-      { speaker: 'ai', text: `EMS dispatch confirmed. Paramedics en route to ${patientLocation.address}. Estimated arrival: 5 minutes. Telemetry link live.`, time: timeNow },
+      { speaker: 'ai', text: `EMS dispatch confirmed. Paramedics en route to ${patientLocation.address || 'the address on file (none added yet)'}. Estimated arrival: 5 minutes. Telemetry link live.`, time: timeNow },
     ]);
 
-    speakText(`EMS dispatch confirmed. Paramedics en route to ${patientLocation.address}. Keep your phone near you.`);
+    speakText(`EMS dispatch confirmed. Paramedics en route to ${patientLocation.address || 'the address on file (none added yet)'}. Keep your phone near you.`);
   };
 
   const handleEndCall = () => {
@@ -215,7 +246,7 @@ export default function AIVoiceCallModal({
       id: `call_${Date.now()}`,
       timestamp: 'Just now',
       recipientName: patientName,
-      recipientPhone: '+1 (555) 321-7788',
+      recipientPhone: patientPhone.trim() || 'No number on file',
       triggerReason: triggerReason,
       durationSeconds: Math.max(callDuration, 15),
       callStatus: callStatus === 'dispatched' ? 'escalated_to_911' : 'completed',
@@ -300,7 +331,7 @@ export default function AIVoiceCallModal({
           </div>
 
           <span className="text-[11px] text-slate-400">
-            Location: {patientLocation.label.split(' ')[0]}
+            Location: {patientLocation.address ? patientLocation.label.split(' ')[0] : 'Not set'}
           </span>
         </div>
 
@@ -451,6 +482,45 @@ export default function AIVoiceCallModal({
           )}
         </div>
 
+        {/* Real emergency actions: these use the phone's dialler and maps, nothing simulated */}
+        <div className="px-6 py-3 bg-rose-950/40 border-t border-rose-900/50 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-rose-200/80 mr-auto">Real emergency? Don't wait for the simulation.</span>
+          <a
+            href={telLink(callerEmergency.service.primary)}
+            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold"
+            title={`Emergency services in ${callerEmergency.service.name}`}
+          >
+            Call {callerEmergency.service.primary}
+          </a>
+          {callerEmergency.service.ambulance && (
+            <a
+              href={telLink(callerEmergency.service.ambulance)}
+              className="px-3 py-1.5 rounded-lg bg-rose-900/60 hover:bg-rose-800 border border-rose-700 text-rose-100 font-bold"
+            >
+              Ambulance {callerEmergency.service.ambulance}
+            </a>
+          )}
+          <a
+            href={nearestHospitalsUrl(patientLocation.address)}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-semibold"
+          >
+            Nearest hospitals
+          </a>
+          <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
+            <EmergencyCountryPicker resolved={callerEmergency} onChange={setCallerCountry} tone="dark" />
+            {callerEmergency.service.note && <span className="text-[11px] text-rose-200/60">{callerEmergency.service.note}</span>}
+          </div>
+          {patientIsElsewhere && patientEmergency && (
+            <p className="w-full text-[11px] text-amber-200 bg-amber-950/40 border border-amber-800/60 rounded-lg px-3 py-2">
+              {patientName} is in {patientEmergency.service.name}. Emergency services there are {patientEmergency.service.primary}
+              {patientEmergency.service.ambulance ? ` (ambulance ${patientEmergency.service.ambulance})` : ''} and can only be reached from a
+              phone in {patientEmergency.service.name}. Call {patientName} or someone near them and ask them to dial it.
+            </p>
+          )}
+        </div>
+
         {/* Action Controls & Dispatch */}
         <div className="px-6 py-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -475,7 +545,7 @@ export default function AIVoiceCallModal({
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:bg-red-950 disabled:text-red-400/60 text-white text-xs font-semibold shadow-md transition-colors"
             >
               <Ambulance className="w-4 h-4" />
-              <span>{callStatus === 'dispatched' ? 'EMS Dispatched' : `Bridge 3-Way EMS (${patientLocation.nearestPSAP.slice(0, 16)}...)`}</span>
+              <span>{callStatus === 'dispatched' ? 'EMS Dispatched' : `Bridge 3-Way EMS (${(patientLocation.nearestPSAP || `Local ${dispatchEmergency.service.primary}`).slice(0, 16)}...)`}</span>
             </button>
 
             <button

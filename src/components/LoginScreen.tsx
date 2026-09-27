@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { AuthUser, UserRole } from '../types';
 import { DEMO_USERS } from '../utils/mockPatients';
+import { saveLovedOneName } from '../utils/newAccount';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: AuthUser) => void;
@@ -74,6 +75,35 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     }
   }, []);
 
+  // Password credentials (stored separately from the user profile, as salted SHA-256 hashes).
+  // NOTE: this is client-side only. Real accounts need server-side auth before launch.
+  const CREDENTIALS_KEY = 'kinote_credentials';
+  const DEMO_PASSWORD = 'demo1234';
+
+  const hashPassword = async (email: string, password: string): Promise<string> => {
+    const data = new TextEncoder().encode(`kinote:${email.toLowerCase()}:${password}`);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const loadCredentials = (): Record<string, string> => {
+    try {
+      return JSON.parse(localStorage.getItem(CREDENTIALS_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  };
+
+  const saveCredential = async (email: string, password: string) => {
+    try {
+      const creds = loadCredentials();
+      creds[email.toLowerCase()] = await hashPassword(email, password);
+      localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(creds));
+    } catch {
+      // ignore
+    }
+  };
+
   // Helper to persist a new user
   const saveRegisteredUser = (user: AuthUser) => {
     try {
@@ -88,62 +118,57 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   };
 
   // Sign In with Email
-  const handleEmailSignIn = (e: React.FormEvent) => {
+  const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!signInEmail.trim()) {
+    const cleanEmail = signInEmail.trim().toLowerCase();
+    if (!cleanEmail) {
       setErrorMessage('Please enter your email address.');
+      return;
+    }
+    if (!signInPassword) {
+      setErrorMessage('Please enter your password.');
       return;
     }
 
     setIsVerifying(true);
     setErrorMessage(null);
 
+    const foundCustom = savedCustomUsers.find(u => u.email.toLowerCase() === cleanEmail);
+    const foundDemo = DEMO_USERS.find(u => u.email.toLowerCase() === cleanEmail);
+    const creds = loadCredentials();
+    const enteredHash = await hashPassword(cleanEmail, signInPassword);
+
+    let passwordOk = false;
+    if (foundCustom) {
+      if (creds[cleanEmail]) {
+        passwordOk = creds[cleanEmail] === enteredHash;
+      } else {
+        // Account created before passwords were stored: set this password on first sign-in.
+        await saveCredential(cleanEmail, signInPassword);
+        passwordOk = true;
+      }
+    } else if (foundDemo) {
+      passwordOk = signInPassword === DEMO_PASSWORD;
+    }
+
     setTimeout(() => {
       setIsVerifying(false);
-      const cleanEmail = signInEmail.trim().toLowerCase();
 
-      // 1. Look in custom registered users first
-      const foundCustom = savedCustomUsers.find(u => u.email.toLowerCase() === cleanEmail);
-      if (foundCustom) {
-        onLoginSuccess({
-          ...foundCustom,
-          lastLogin: 'Just now',
-          authMethod: 'email',
-        });
+      if (!foundCustom && !foundDemo) {
+        setErrorMessage('No account found for this email. Tap "Create New Account" to sign up.');
+        return;
+      }
+      if (!passwordOk) {
+        setErrorMessage('Incorrect password. Please try again.');
         return;
       }
 
-      // 2. Look in demo users
-      const foundDemo = DEMO_USERS.find(u => u.email.toLowerCase() === cleanEmail);
-      if (foundDemo) {
-        onLoginSuccess({
-          ...foundDemo,
-          lastLogin: 'Just now',
-          authMethod: 'email',
-        });
-        return;
-      }
-
-      // 3. Brand new user entered directly into Sign In
-      // Generate a new user for them immediately rather than falling back to an old account!
-      const displayName = cleanEmail.split('@')[0]
-        .split(/[._-]/)
-        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ') || 'New User';
-
-      const freshUser: AuthUser = {
-        id: `user_${Date.now()}`,
-        name: displayName,
-        email: cleanEmail,
-        phone: '+1 (555) ' + Math.floor(100 + Math.random() * 900) + '-' + Math.floor(1000 + Math.random() * 9000),
-        role: 'family_caregiver',
+      onLoginSuccess({
+        ...(foundCustom || foundDemo)!,
+        lastLogin: 'Just now',
         authMethod: 'email',
-        lastLogin: 'Just now (New User)',
-      };
-
-      saveRegisteredUser(freshUser);
-      onLoginSuccess(freshUser);
-    }, 700);
+      });
+    }, 500);
   };
 
   // Register New User (Sign Up)
@@ -157,6 +182,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       setErrorMessage('Please enter a valid email address.');
       return;
     }
+    if (newPassword.length < 6) {
+      setErrorMessage('Please choose a password with at least 6 characters.');
+      return;
+    }
+    if (DEMO_USERS.some(u => u.email.toLowerCase() === newEmail.trim().toLowerCase())) {
+      setErrorMessage('This email belongs to a demo profile. Please use your own email.');
+      return;
+    }
 
     setIsVerifying(true);
     setErrorMessage(null);
@@ -168,7 +201,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         id: `user_${Date.now()}`,
         name: newName.trim(),
         email: newEmail.trim().toLowerCase(),
-        phone: newPhone.trim() || '+1 (555) 789-0123',
+        phone: newPhone.trim(),
         role: newRole,
         authMethod: 'email',
         lastLogin: 'Just now (Brand New Account)',
@@ -176,77 +209,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       // Save user to registry
       saveRegisteredUser(freshUser);
+      void saveCredential(freshUser.email, newPassword);
 
-      // If they provided a loved one's name, save a customized patient profile in localStorage
-      if (patientMonitoredName.trim()) {
-        try {
-          const existingPatients = JSON.parse(localStorage.getItem('kinote_patients_list') || '[]');
-          const customPatient = {
-            id: `patient-custom-${Date.now()}`,
-            name: patientMonitoredName.trim(),
-            relationship: 'Loved One',
-            age: 78,
-            gender: 'Monitored Family Member',
-            roomOrUnit: 'Primary Residence',
-            primaryCondition: 'Cardiovascular & Vitals Telemetry',
-            avatarBg: 'bg-emerald-700',
-            location: {
-              id: 'loc_home',
-              label: `${patientMonitoredName.trim()}'s Residence`,
-              address: 'Private Residence, USA',
-              coordinates: { lat: 37.7749, lng: -122.4194 },
-              dispatchPreference: 'closest_hospital_er' as const,
-              nearestPSAP: 'Local County 911 PSAP',
-              accessNotes: 'Keycode in family vault',
-            },
-            vitals: {
-              heartRate: 0,
-              bloodPressureSystolic: 0,
-              bloodPressureDiastolic: 0,
-              spo2: 0,
-              respiratoryRate: 0,
-              skinTemperature: 0,
-              glucoseLevel: 0,
-              hrv: 0,
-              stressLevel: 0,
-              lastUpdated: 'Awaiting device sync',
-              batteryLevel: 0,
-              fallDetected: false,
-              ecgStatus: 'normal_sinus' as const,
-            },
-            thresholds: {
-              heartRate: { minCritical: 48, minWarning: 55, maxWarning: 105, maxCritical: 125 },
-              bloodPressureSystolic: { minCritical: 88, minWarning: 95, maxWarning: 140, maxCritical: 165 },
-              bloodPressureDiastolic: { minCritical: 55, minWarning: 60, maxWarning: 90, maxCritical: 105 },
-              spo2: { minCritical: 90, minWarning: 93, maxWarning: 100, maxCritical: 100 },
-              glucose: { minCritical: 65, minWarning: 75, maxWarning: 160, maxCritical: 200 },
-              skinTemperature: { minCritical: 95.0, minWarning: 96.5, maxWarning: 99.8, maxCritical: 101.5 },
-              wearableSyncProtocol: 'continuous_realtime' as const,
-              requireEmergencyChime: true,
-              autoEscalateToEMSAfterSeconds: 90,
-            },
-            medications: [],
-            doseLogs: [],
-            devices: [],
-            emergencyContacts: [
-              {
-                id: `cont-${Date.now()}`,
-                name: freshUser.name,
-                relation: 'Primary Caregiver',
-                phone: freshUser.phone,
-                email: freshUser.email,
-                priorityOrder: 1,
-                notifyOnWarning: true,
-                notifyOnCritical: true,
-                receiveAIVoiceCall: true,
-              }
-            ],
-          };
-          localStorage.setItem('kinote_patients_list', JSON.stringify([customPatient, ...existingPatients]));
-        } catch {
-          // ignore
-        }
-      }
+      // Remember the loved one's name so their profile is created with it
+      saveLovedOneName(freshUser.id, patientMonitoredName);
 
       onLoginSuccess(freshUser);
     }, 850);
@@ -278,7 +244,16 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setTimeout(() => {
       setIsVerifying(false);
       const cleanPhone = phoneNumber.trim();
-      const matched = savedCustomUsers.find(u => u.phone === cleanPhone) || DEMO_USERS[0];
+      // Match on digits only so "+1 (555) 234-8901" and "15552348901" are the same number
+      const digits = (v: string) => (v || '').replace(/\D/g, '');
+      const target = digits(cleanPhone);
+      const matched = target.length >= 7
+        ? savedCustomUsers.find(u => digits(u.phone) === target) || DEMO_USERS.find(u => digits(u.phone) === target)
+        : undefined;
+      if (!matched) {
+        setErrorMessage('No account uses this mobile number. Sign up first, or sign in with email.');
+        return;
+      }
       onLoginSuccess({
         ...matched,
         authMethod: 'phone_otp',
@@ -828,7 +803,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <div className="p-4 bg-slate-950 border-t border-slate-800/60">
           <details className="group">
             <summary className="text-[11px] font-semibold text-slate-500 hover:text-slate-400 cursor-pointer flex items-center justify-between select-none">
-              <span>Looking for default test profiles?</span>
+              <span>Looking for default test profiles? (email sign-in password: demo1234)</span>
               <span className="text-teal-400 group-open:rotate-180 transition-transform">▾</span>
             </summary>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-2 border-t border-slate-900">
