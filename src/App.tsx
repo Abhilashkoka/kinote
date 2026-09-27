@@ -137,7 +137,7 @@ export const createDefaultCustomPatient = (user: AuthUser): PatientWithLocations
         id: `contact_${Date.now()}`,
         name: user.name,
         relation: 'Primary Caregiver',
-        phone: user.phone || '+1 (555) 000-0000',
+        phone: user.phone || '',
         email: user.email,
         priorityOrder: 1,
         notifyOnWarning: true,
@@ -343,6 +343,27 @@ export default function App() {
     showToast(`Renamed to ${name}.`);
   };
 
+  // Save emergency contacts on the monitored person so they survive a reload
+  const handleUpdateContacts = (contacts: EmergencyContact[]) => {
+    setEmergencyContacts(contacts);
+    const updated = patients.map((p) => (p.id === activePatient.id ? { ...p, emergencyContacts: contacts } : p));
+    setPatients(updated);
+    try {
+      if (currentUser && !isDemoUser(currentUser)) {
+        const target = updated.find((p) => p.id === `patient_${currentUser.id}`);
+        if (target) localStorage.setItem('kinote_patient_' + currentUser.id, JSON.stringify(target));
+      } else {
+        localStorage.setItem('kinote_patients_list', JSON.stringify(updated));
+      }
+    } catch {}
+  };
+
+  // Phone number of the person being called: a senior's own account number, or the demo profile's number
+  const monitoredPersonPhone =
+    currentUser && !isDemoUser(currentUser)
+      ? (currentUser.role === 'senior_patient' ? currentUser.phone || '' : '')
+      : DEMO_USERS.find((u) => u.name === patientName)?.phone || '';
+
   // Device Pairing Handler
   const handleDevicePaired = (newDevice: WearableDevice, initialVitals: Partial<VitalsReading>) => {
     const updatedDevices = [newDevice, ...devices.filter((d) => d.id !== newDevice.id)];
@@ -503,8 +524,8 @@ export default function App() {
           id: `contact_${Date.now()}`,
           name: currentUser?.name || 'Primary Caregiver',
           relation: 'Emergency Family Contact',
-          phone: currentUser?.phone || '+1 (555) 012-3456',
-          email: currentUser?.email || 'caregiver@example.com',
+          phone: currentUser?.phone || '',
+          email: currentUser?.email || '',
           priorityOrder: 1,
           notifyOnWarning: true,
           notifyOnCritical: true,
@@ -1092,8 +1113,8 @@ export default function App() {
             patientName={patientName}
             onTriggerSOS={() => handleLaunchAIVoiceCall('Senior SafeMode Emergency SOS Triggered')}
             onStartAIVoiceCheckin={() => handleLaunchAIVoiceCall('Senior Manual Voice Wellness Check-in')}
-            primaryContactName={emergencyContacts[0]?.name || 'David Miller (Son)'}
-            primaryContactPhone={emergencyContacts[0]?.phone || '+1 (555) 234-8901'}
+            primaryContactName={emergencyContacts[0]?.name || ''}
+            primaryContactPhone={emergencyContacts[0]?.phone || ''}
             medications={medications}
             doseLogs={doseLogs}
             onLogDose={handleLogDose}
@@ -1118,7 +1139,7 @@ export default function App() {
             patientName={patientName}
             onSimulateVitals={handleSimulateVitals}
             onInitiateAIVoiceCall={handleLaunchAIVoiceCall}
-            onUpdateContacts={(c) => setEmergencyContacts(c)}
+            onUpdateContacts={handleUpdateContacts}
             onOpenAIAssistant={() => setActiveTab('ai_assistant')}
             medications={medications}
             doseLogs={doseLogs}
@@ -1930,6 +1951,9 @@ export default function App() {
         currentVitalsSummary={`HR: ${vitals.heartRate} BPM, BP: ${vitals.bloodPressureSystolic}/${vitals.bloodPressureDiastolic}, SpO2: ${vitals.spo2}%`}
         patientLocation={currentLocation}
         onCallResolved={handleCallResolved}
+        caregiverName={emergencyContacts[0]?.name || ''}
+        caregiverPhone={emergencyContacts[0]?.phone || ''}
+        patientPhone={monitoredPersonPhone}
       />
 
       {/* Privacy Policy & Health Disclaimers Modal (Google Play Compliance) */}
